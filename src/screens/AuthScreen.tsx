@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { COLORS, RADIUS, SHADOWS, SPACING, BUTTONS, TYPOGRAPHY } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
+import { useNetwork } from '../context/NetworkContext';
 import { UserProfile } from '../types';
 import { User, Mail, Lock, Eye, EyeOff, Check } from 'lucide-react-native';
 import { GoogleIcon } from '../components/icons';
@@ -60,6 +61,7 @@ interface FormErrors {
 
 export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
   const { login } = useAuth();
+  const { isConnected, checkConnection } = useNetwork();
   const [isRegister, setIsRegister] = useState(false);
   const [fullName, setFullName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -166,21 +168,33 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
           }
           return;
         }
-        // Backend unreachable — fall back to local demo data so the app stays usable/testable
-        // offline, matching the rest of this app's behavior when the API can't be reached.
-        if (isRegister) {
-          runAuth({
-            id: Date.now(),
-            name: fullName.trim(),
-            email: email.trim(),
-            mobile: `+63 ${digitsOnly(phoneNumber)}`,
-            rating: 5.0,
-            totalRides: 0,
-            emergencyContact: { name: '', phone: '' },
-          });
-        } else {
-          runAuth({ ...DEMO_PASSENGER, email: email.trim() });
-        }
+        // Backend unreachable or offline — alert user with retry or demo mode option
+        setLoading(false);
+        Alert.alert(
+          'Cloud Server Unreachable',
+          'Unable to reach the Trivora cloud server. Please check your internet connection.\n\nWould you like to continue in Offline Demo Mode for testing?',
+          [
+            { text: 'Check Connection / Retry', onPress: () => checkConnection(), style: 'cancel' },
+            {
+              text: 'Continue in Demo Mode',
+              onPress: () => {
+                if (isRegister) {
+                  runAuth({
+                    id: Date.now(),
+                    name: fullName.trim(),
+                    email: email.trim(),
+                    mobile: `+63 ${digitsOnly(phoneNumber)}`,
+                    rating: 5.0,
+                    totalRides: 0,
+                    emergencyContact: { name: '', phone: '' },
+                  });
+                } else {
+                  runAuth({ ...DEMO_PASSENGER, email: email.trim() });
+                }
+              },
+            },
+          ]
+        );
       });
   };
 

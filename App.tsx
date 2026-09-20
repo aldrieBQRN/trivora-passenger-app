@@ -14,7 +14,9 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { BookingProvider, useBooking } from './src/context/BookingContext';
 import { SavedPlacesProvider } from './src/context/SavedPlacesContext';
+import { NetworkProvider } from './src/context/NetworkContext';
 import { ToastProvider } from './src/components/Toast';
+import OfflineBanner from './src/components/OfflineBanner';
 import { COLORS, RADIUS, SPACING } from './src/constants/theme';
 
 const ONBOARDING_STORAGE_KEY = '@trivora_passenger_onboarding_done';
@@ -242,6 +244,7 @@ function PassengerAppNavigator() {
       ]}
     >
       <StatusBar style={isSplashOrOnboarding ? 'light' : 'dark'} backgroundColor={COLORS.background} />
+      <OfflineBanner />
       <View style={styles.container}>
         {/* Screen Viewport */}
         <View
@@ -297,15 +300,17 @@ function PassengerAppNavigator() {
 export default function App() {
   return (
     <SafeAreaProvider>
-      <ToastProvider>
-        <AuthProvider>
-          <SavedPlacesProvider>
-            <BookingProvider>
-              <PassengerAppNavigator />
-            </BookingProvider>
-          </SavedPlacesProvider>
-        </AuthProvider>
-      </ToastProvider>
+      <NetworkProvider>
+        <ToastProvider>
+          <AuthProvider>
+            <SavedPlacesProvider>
+              <BookingProvider>
+                <PassengerAppNavigator />
+              </BookingProvider>
+            </SavedPlacesProvider>
+          </AuthProvider>
+        </ToastProvider>
+      </NetworkProvider>
     </SafeAreaProvider>
   );
 }
