@@ -4,12 +4,12 @@ import { DriverProfile, UserProfile, HistoryItem, SavedPlace, TodaZone } from '.
 import { TODA_ZONES } from '../constants/todaRoutes';
 
 function getDefaultApiBaseUrl(): string {
-  if (Platform.OS === 'web') {
-    return 'http://localhost:8000/api/v1';
-  }
-
   if (process.env.EXPO_PUBLIC_API_URL) {
     return process.env.EXPO_PUBLIC_API_URL;
+  }
+
+  if (Platform.OS === 'web') {
+    return 'http://localhost:8000/api/v1';
   }
 
   // In Expo Go on physical device, hostUri holds the development machine's LAN IP
