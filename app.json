@@ -1,0 +1,56 @@
+{
+  "expo": {
+    "name": "Trivora Commuter",
+    "slug": "trivora-passenger-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#0F1E36"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "ph.gov.trivora.passenger",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Trivora uses your location to set your pick-up point and match you with nearby tricycles."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0F1E36"
+      },
+      "package": "ph.gov.trivora.passenger",
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.RECORD_AUDIO"
+      ],
+      "usesCleartextTraffic": true
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Trivora uses your location to set your pick-up point and match you with nearby tricycles."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Trivora needs access to your photos so you can set a profile picture.",
+          "cameraPermission": "Trivora needs camera access so you can take a profile picture."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "40f9df69-61f4-42ea-9324-7105370d0c13"
+      }
+    },
+    "owner": "aldrie_bqrn"
+  }
+}
