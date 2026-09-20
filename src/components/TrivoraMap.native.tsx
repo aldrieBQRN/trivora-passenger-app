@@ -18,7 +18,7 @@ const REFRAME_THRESHOLD_KM = 0.12;
 const EDGE_MARGIN = 40;
 
 const CARTO_URL_TEMPLATE =
-  'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?key=cb1_3qo7_1_ac41fdc9883213d666d06544';
+  'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png';
 
 const VOYAGER_MAP_STYLE = [
   { elementType: 'geometry', stylers: [{ color: '#FAF6EE' }] },
@@ -198,7 +198,7 @@ export default function TrivoraMapNative({
           flipY={false}
           tileSize={256}
           shouldReplaceMapContent={true}
-          zIndex={-1}
+          zIndex={1}
         />
 
         {/* TODA Terminal Markers */}
@@ -206,6 +206,7 @@ export default function TrivoraMapNative({
           todaList.map((zone) => (
             <Marker
               key={zone.code}
+              zIndex={8}
               coordinate={{ latitude: zone.centerLat, longitude: zone.centerLng }}
               anchor={{ x: 0.5, y: 1 }}
               onPress={(e) => {
@@ -225,7 +226,7 @@ export default function TrivoraMapNative({
 
         {/* Pickup Location Marker — same teardrop pin as the TODA markers above, recolored
             green so pickup/dropoff/TODA all read as the same family of pin. */}
-        <Marker coordinate={{ latitude: pickup.lat, longitude: pickup.lng }} anchor={{ x: 0.5, y: 1 }}>
+        <Marker zIndex={10} coordinate={{ latitude: pickup.lat, longitude: pickup.lng }} anchor={{ x: 0.5, y: 1 }}>
           <View style={styles.todaPinContainer}>
             <View style={[styles.todaPinDrop, styles.pickupPinDrop]}>
               <View style={styles.todaPinIconInner}>
@@ -237,7 +238,7 @@ export default function TrivoraMapNative({
 
         {/* Dropoff Destination Marker — same pin, colored red */}
         {dropoff && (
-          <Marker coordinate={{ latitude: dropoff.lat, longitude: dropoff.lng }} anchor={{ x: 0.5, y: 1 }}>
+          <Marker zIndex={10} coordinate={{ latitude: dropoff.lat, longitude: dropoff.lng }} anchor={{ x: 0.5, y: 1 }}>
             <View style={styles.todaPinContainer}>
               <View style={[styles.todaPinDrop, styles.destPinDrop]}>
                 <View style={styles.todaPinIconInner}>
@@ -251,6 +252,7 @@ export default function TrivoraMapNative({
         {/* Moving Driver Marker */}
         {driverLocation && (
           <Marker
+            zIndex={12}
             coordinate={{ latitude: driverLocation.lat, longitude: driverLocation.lng }}
             rotation={driverLocation.heading}
             anchor={{ x: 0.5, y: 0.5 }}

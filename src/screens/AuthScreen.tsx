@@ -136,31 +136,36 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
     setErrors({});
     setLoading(true);
 
-    const authPromise = isRegister
-      ? passengerApi.register({
-          name: fullName.trim(),
-          email: email.trim(),
-          mobile_number: `+63 ${digitsOnly(phoneNumber)}`,
-          password,
-          // Only ever true here — the form can't reach this point unless agreedToTerms was
-          // explicitly checked (validated above), so this never sends fabricated consent.
-          terms_accepted: agreedToTerms,
-          privacy_policy_accepted: agreedToTerms,
-        })
-      : passengerApi.login(email.trim(), password);
+    const executeAuth = () => {
+      return isRegister
+        ? passengerApi.register({
+            name: fullName.trim(),
+            email: email.trim(),
+            mobile_number: `+63 ${digitsOnly(phoneNumber)}`,
+            password,
+            terms_accepted: agreedToTerms,
+            privacy_policy_accepted: agreedToTerms,
+          })
+        : passengerApi.login(email.trim(), password);
+    };
 
-    authPromise
-      .then((res: any) => {
+    (async () => {
+      try {
+        let res;
+        try {
+          res = await executeAuth();
+        } catch (firstErr: any) {
+          if (firstErr?.status !== undefined) throw firstErr;
+          // Transient network hiccup — wait 1.5s and retry once
+          await new Promise((r) => setTimeout(r, 1500));
+          res = await executeAuth();
+        }
         login(mapAuthResponseToUserProfile(res, email.trim()), res.token);
         setLoading(false);
         onAuthenticated();
-      })
-      .catch((err: any) => {
+      } catch (err: any) {
+        setLoading(false);
         if (err?.status !== undefined) {
-          // The backend was reached and rejected the request outright (wrong password, email
-          // already taken) — a real failure, surfaced on the field it actually concerns instead
-          // of silently logging the passenger in anyway.
-          setLoading(false);
           if (isRegister) {
             setErrors({ email: err.message || 'Could not create your account. Please check your details.' });
           } else {
@@ -168,8 +173,6 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
           }
           return;
         }
-        // Backend unreachable or offline — alert user with retry or demo mode option
-        setLoading(false);
         Alert.alert(
           'Cloud Server Unreachable',
           `Unable to connect to the Trivora cloud backend.\n\nDetails: ${err?.message || 'Network Timeout'}\nServer: ${getApiBaseUrl()}\n\nPlease verify your phone has an active internet connection and tap Retry.`,
@@ -195,7 +198,8 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
             },
           ]
         );
-      });
+      }
+    })();
   };
 
   const handleSocialLogin = () => {
