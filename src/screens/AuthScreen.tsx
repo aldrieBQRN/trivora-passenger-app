@@ -18,7 +18,7 @@ import { useNetwork } from '../context/NetworkContext';
 import { UserProfile } from '../types';
 import { User, Mail, Lock, Eye, EyeOff, Check } from 'lucide-react-native';
 import { GoogleIcon } from '../components/icons';
-import { passengerApi, mapAuthResponseToUserProfile } from '../services/api';
+import { passengerApi, mapAuthResponseToUserProfile, getApiBaseUrl } from '../services/api';
 import Button from '../components/Button';
 import LegalDocumentModal from '../components/LegalDocumentModal';
 import { LEGAL_LAST_UPDATED, TERMS_SECTIONS, PRIVACY_SECTIONS } from '../constants/legalDocuments';
@@ -172,9 +172,9 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
         setLoading(false);
         Alert.alert(
           'Cloud Server Unreachable',
-          'Unable to reach the Trivora cloud server. Please check your internet connection.\n\nWould you like to continue in Offline Demo Mode for testing?',
+          `Unable to connect to the Trivora cloud backend.\n\nDetails: ${err?.message || 'Network Timeout'}\nServer: ${getApiBaseUrl()}\n\nPlease verify your phone has an active internet connection and tap Retry.`,
           [
-            { text: 'Check Connection / Retry', onPress: () => checkConnection(), style: 'cancel' },
+            { text: 'Retry', onPress: () => handleSubmit() },
             {
               text: 'Continue in Demo Mode',
               onPress: () => {
