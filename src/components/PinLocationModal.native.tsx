@@ -8,7 +8,7 @@ import { TODA_ZONES } from '../constants/todaRoutes';
 import PinLocationSheet from './PinLocationSheet';
 
 const CARTO_URL_TEMPLATE =
-  'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?key=cb1_3qo7_1_ac41fdc9883213d666d06544';
+  'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?key=cb1_3qo7_1_ac41fdc9883213d666d06544';
 
 interface PinLocationModalProps {
   visible: boolean;
@@ -85,7 +85,7 @@ export default function PinLocationModal({
           flipY={false}
           tileSize={256}
           shouldReplaceMapContent={true}
-          zIndex={-1}
+          zIndex={1}
         />
 
         {/* TODA Terminal Markers */}

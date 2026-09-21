@@ -177,7 +177,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
           'Cloud Server Unreachable',
           `Unable to connect to the Trivora cloud backend.\n\nDetails: ${err?.message || 'Network Timeout'}\nServer: ${getApiBaseUrl()}\n\nPlease verify your phone has an active internet connection and tap Retry.`,
           [
-            { text: 'Retry', onPress: () => handleSubmit() },
+            { text: 'Retry', onPress: () => handleContinue() },
             {
               text: 'Continue in Demo Mode',
               onPress: () => {
