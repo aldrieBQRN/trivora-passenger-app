@@ -5,7 +5,7 @@ import { TODA_ZONES } from '../constants/todaRoutes';
 
 function getDefaultApiBaseUrl(): string {
   if (process.env.EXPO_PUBLIC_API_URL) {
-    return process.env.EXPO_PUBLIC_API_URL;
+    return process.env.EXPO_PUBLIC_API_URL.trim().replace(/\/+$/, '');
   }
 
   if (Platform.OS === 'web') {
