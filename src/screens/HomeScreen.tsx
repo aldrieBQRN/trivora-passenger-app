@@ -20,7 +20,7 @@ import NotificationsModal from '../components/NotificationsModal';
 import FloatingIconButton from '../components/FloatingIconButton';
 import LocationPendingView from '../components/LocationPendingView';
 import Button from '../components/Button';
-import { TodaZone } from '../types';
+import { useLiveLocation } from '../hooks/useCurrentLocation';
 
 interface HomeScreenProps {
   topInset?: number;
@@ -39,7 +39,6 @@ const QUICK_DESTINATIONS = [
       address: 'Brgy. Bucana, Nasugbu Batangas',
       lat: 14.0625,
       lng: 120.627,
-      zoneCode: 'TODA-BUCANA',
       category: 'Residential',
     },
   },
@@ -52,7 +51,6 @@ const QUICK_DESTINATIONS = [
       address: 'J.P. Rizal St., Poblacion',
       lat: 14.0718,
       lng: 120.6325,
-      zoneCode: 'TODA-BRGY8',
       category: 'Government',
     },
   },
@@ -65,7 +63,6 @@ const QUICK_DESTINATIONS = [
       address: 'Market St., Brgy 8',
       lat: 14.0705,
       lng: 120.6341,
-      zoneCode: 'TODA-BRGY8',
       category: 'Market',
     },
   },
@@ -78,7 +75,6 @@ export default function HomeScreen({
 }: HomeScreenProps) {
   const {
     startBookingFlow,
-    matchedToda,
     pickup,
     selectPickup,
     selectDestination,
@@ -95,7 +91,6 @@ export default function HomeScreen({
 
   const [showDestinationPicker, setShowDestinationPicker] = useState(false);
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
-  const [selectedToda, setSelectedToda] = useState<TodaZone | null>(null);
 
   // Measured from actual layout rather than guessed, so the pickup pin sits centered in the
   // visible area between the header bar and the action sheet, not the full screen height.
@@ -115,6 +110,10 @@ export default function HomeScreen({
   // to null again for the session — so this only ever shows once per login, not on every later
   // Home visit, and never shows the map/pickup pin using the default/fallback location as if it
   // were the passenger's real position while the first real GPS fix is still in flight.
+  // Live position for the Home pin/Focus follow (see useLiveLocation) — falls back to the
+  // one-shot real fix below until the first live update arrives.
+  const liveLocation = useLiveLocation(true);
+
   if (currentLat == null || currentLng == null) {
     return <LocationPendingView isLocating={isLocatingPickup} error={locationError} onRetry={retryLocation} />;
   }
@@ -124,12 +123,11 @@ export default function HomeScreen({
       {/* Full-bleed map — the screen's primary surface, not a bounded canvas */}
       <TrivoraMap
         pickup={pickup}
-        activeZone={matchedToda}
-        showTodaPill={false}
         showCompass={false}
+        focusCurrentLocation
+        currentLocation={liveLocation ?? { lat: currentLat, lng: currentLng }}
         topInset={headerHeight}
         bottomInset={sheetHeight}
-        onTodaPress={(zone: TodaZone) => setSelectedToda(zone)}
         style={StyleSheet.absoluteFillObject}
       />
 
@@ -207,89 +205,6 @@ export default function HomeScreen({
 
         <Button label="Book a Tricycle" onPress={startBookingFlow} />
       </View>
-
-      {/* Selected TODA Pin Card (when clicking a TODA pin on the home map) */}
-      {selectedToda && (
-        <View style={[styles.todaFloatingCard, { bottom: sheetHeight + 12 }]}>
-          <View style={styles.todaCardHeader}>
-            <View style={styles.todaCardTitleRow}>
-              <View style={styles.todaCardBadgeCircle}>
-                <MapPin size={16} color="#1D2542" />
-              </View>
-              <View style={styles.todaCardTitleMeta}>
-                <View style={styles.todaCardHeadingRow}>
-                  <Text style={styles.todaCardName} numberOfLines={1}>
-                    {selectedToda.name}
-                  </Text>
-                  <View style={styles.todaCardBadge}>
-                    <Text style={styles.todaCardBadgeText}>TODA</Text>
-                  </View>
-                </View>
-                {selectedToda.terminal_name ? (
-                  <Text style={styles.todaCardTerminal} numberOfLines={1}>
-                    {selectedToda.terminal_name}
-                  </Text>
-                ) : null}
-              </View>
-            </View>
-            <TouchableOpacity
-              style={styles.todaCardCloseBtn}
-              onPress={() => setSelectedToda(null)}
-              activeOpacity={0.7}
-            >
-              <X size={16} color={COLORS.textSecondary} />
-            </TouchableOpacity>
-          </View>
-
-          <Text style={styles.todaCardAddress} numberOfLines={2}>
-            {selectedToda.address || `${selectedToda.barangay}, Nasugbu, Batangas`}
-          </Text>
-
-          <View style={styles.todaCardActions}>
-            <TouchableOpacity
-              style={styles.todaCardDestBtn}
-              onPress={() => {
-                selectDestination({
-                  name: selectedToda.name,
-                  todaName: selectedToda.name,
-                  terminalName: selectedToda.terminal_name,
-                  barangay: selectedToda.barangay,
-                  address: selectedToda.address || `${selectedToda.barangay}, Nasugbu, Batangas`,
-                  lat: selectedToda.centerLat,
-                  lng: selectedToda.centerLng,
-                  zoneCode: selectedToda.code,
-                  category: 'TODA Terminal',
-                });
-                setSelectedToda(null);
-              }}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.todaCardDestBtnText}>Set as Destination</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.todaCardPickupBtn}
-              onPress={() => {
-                selectPickup({
-                  name: selectedToda.name,
-                  todaName: selectedToda.name,
-                  terminalName: selectedToda.terminal_name,
-                  barangay: selectedToda.barangay,
-                  address: selectedToda.address || `${selectedToda.barangay}, Nasugbu, Batangas`,
-                  lat: selectedToda.centerLat,
-                  lng: selectedToda.centerLng,
-                  zoneCode: selectedToda.code,
-                  category: 'TODA Terminal',
-                });
-                setSelectedToda(null);
-              }}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.todaCardPickupBtnText}>Set as Pick-up</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
 
       <DestinationPickerModal
         visible={showDestinationPicker}
@@ -410,111 +325,5 @@ const styles = StyleSheet.create({
     width: 1,
     height: 32,
     backgroundColor: COLORS.borderLight,
-  },
-  todaFloatingCard: {
-    position: 'absolute',
-    left: SPACING.md,
-    right: SPACING.md,
-    backgroundColor: COLORS.background,
-    borderRadius: RADIUS.xl,
-    padding: SPACING.md,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    zIndex: 25,
-    ...SHADOWS.card,
-  },
-  todaCardHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    marginBottom: 6,
-  },
-  todaCardTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    flex: 1,
-  },
-  todaCardBadgeCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#EEF2FF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#C7D2FE',
-  },
-  todaCardTitleMeta: {
-    flex: 1,
-  },
-  todaCardHeadingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  todaCardName: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: COLORS.textPrimary,
-  },
-  todaCardBadge: {
-    backgroundColor: '#1D2542',
-    paddingHorizontal: 6,
-    paddingVertical: 1.5,
-    borderRadius: RADIUS.sm,
-  },
-  todaCardBadgeText: {
-    color: '#FFFFFF',
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  todaCardTerminal: {
-    fontSize: 12.5,
-    fontWeight: '700',
-    color: COLORS.textPrimary,
-    marginTop: 1,
-  },
-  todaCardAddress: {
-    fontSize: 11.5,
-    color: COLORS.textSecondary,
-    marginBottom: 12,
-    lineHeight: 16,
-  },
-  todaCardCloseBtn: {
-    padding: 4,
-  },
-  todaCardActions: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  todaCardDestBtn: {
-    flex: 1,
-    backgroundColor: '#1D2542',
-    paddingVertical: 10,
-    borderRadius: RADIUS.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  todaCardDestBtnText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  todaCardPickupBtn: {
-    flex: 1,
-    backgroundColor: COLORS.surfaceInput,
-    paddingVertical: 10,
-    borderRadius: RADIUS.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  todaCardPickupBtnText: {
-    color: COLORS.textPrimary,
-    fontSize: 12,
-    fontWeight: '700',
   },
 });

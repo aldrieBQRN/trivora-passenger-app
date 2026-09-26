@@ -266,22 +266,6 @@ export default function TrivoraMapWeb({
           recenterSignal={recenterSignal}
         />
 
-        {/* TODA Terminal Markers */}
-        {showTodaPins &&
-          todaList.map((zone) => (
-            <Marker
-              key={zone.code}
-              position={[zone.centerLat, zone.centerLng]}
-              icon={todaMarkerIcon}
-              eventHandlers={{
-                click: (e) => {
-                  L.DomEvent.stopPropagation(e);
-                  onTodaPress?.(zone);
-                },
-              }}
-            />
-          ))}
-
         <Marker position={[pickup.lat, pickup.lng]} icon={pickupIcon} />
 
         {dropoff && <Marker position={[dropoff.lat, dropoff.lng]} icon={dropoffIcon} />}
@@ -316,18 +300,6 @@ export default function TrivoraMapWeb({
             {suggestedRouteInfo.distance} • {suggestedRouteInfo.duration}
           </Text>
         </View>
-      )}
-
-      {showTodaPill && (
-        <TouchableOpacity
-          style={styles.todaPill}
-          onPress={() => onTodaPress?.(activeZone || todaList[0])}
-          activeOpacity={0.88}
-        >
-          <Shield size={12} color={COLORS.textInverse} />
-          <Text style={styles.todaPillText}>{activeZone?.name || 'TODA Bucana Zone'}</Text>
-          <ChevronRight size={14} color={COLORS.textInverse} />
-        </TouchableOpacity>
       )}
 
       {showCompass && (

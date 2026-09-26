@@ -45,7 +45,7 @@ export default function SOSModal({ visible, onClose, driver }: SOSModalProps) {
           <View style={styles.detailsBox}>
             <Text style={styles.detailItem}>• Driver: {driver.name}</Text>
             <Text style={styles.detailItem}>
-              • Tricycle: {driver.tricycle.plateNumber} (Unit {driver.tricycle.bodyNumber})
+              • Tricycle: {driver.tricycle.plateNumber} (Unit {driver.tricycle.codingNumber})
             </Text>
             <Text style={styles.detailItem}>• Zone: {driver.todaName || 'TODA Bucana'}</Text>
           </View>

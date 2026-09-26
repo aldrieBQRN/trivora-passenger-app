@@ -2,13 +2,26 @@ import React, { useRef, useEffect, useMemo, useCallback, useState } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
 import MapView, { Marker, Polyline, UrlTile } from 'react-native-maps';
 import { COLORS, RADIUS, SHADOWS } from '../constants/theme';
-import { MapPin, Compass, Shield, ChevronRight, Zap } from 'lucide-react-native';
-import { TricycleMarker } from './icons';
+import { Compass, Shield, ChevronRight, Zap, LocateFixed } from 'lucide-react-native';
+import { TricycleIcon } from './icons';
+
+import { PICKUP_PIN_IMAGE, DESTINATION_PIN_IMAGE } from '../constants/mapPins';
 import { TODA_ZONES } from '../constants/todaRoutes';
 import { fetchTodaZones } from '../services/api';
 import { TodaZone } from '../types';
 import { TrivoraMapProps } from './TrivoraMap.types';
 import { haversineKm } from '../utils/routeInterpolation';
+
+/** Max route vertices handed to fitToCoordinates - covers the route's whole extent without
+ * passing thousands of points across the native bridge. */
+const MAX_FIT_ROUTE_POINTS = 40;
+
+/** Home map zoom: visible span in degrees (~0.004° ≈ 450 m top-to-bottom; was 0.008°). Same value as
+ * the Driver Home map. Used for the initial region and the Home recenter — single-point framing only. */
+const HOME_ZOOM_DELTA = 0.004;
+/** Follow mode: a location update at least this far (km, ~3 m) from where the camera last
+ * centered moves the camera; smaller moves (GPS jitter) don't twitch it. */
+const FOLLOW_MIN_MOVE_KM = 0.003;
 
 /** Once following a driver (en-route or in-transit), re-frame only after this much real
  * movement since the camera was last positioned — keeps the destination in view as the driver
@@ -56,6 +69,8 @@ export default function TrivoraMapNative({
   bottomInset = 0,
   onTodaPress,
   onRecenter,
+  focusCurrentLocation = false,
+  currentLocation = null,
   style,
 }: TrivoraMapProps) {
   const [todaList, setTodaList] = useState<TodaZone[]>(TODA_ZONES);
@@ -69,12 +84,52 @@ export default function TrivoraMapNative({
   }, []);
 
   const mapRef = useRef<MapView | null>(null);
+
+  // ---- Focus Current Location (Home only) ----
+  // Following starts only when the user taps Focus. Live positions arrive through the
+  // `currentLocation` prop (HomeScreen's useLiveLocation, falling back to the app's one-shot real
+  // fix) — the same coordinate the green pin is drawn at, so pin and camera never separate. No
+  // native blue dot.
+  const [isFollowingUser, setIsFollowingUser] = useState(false);
+  const isFollowingRef = useRef(false);
+  const followCenterRef = useRef<{ lat: number; lng: number } | null>(null);
+  const centerOnUser = (loc: { lat: number; lng: number }) => {
+    followCenterRef.current = loc;
+    mapRef.current?.animateToRegion(
+      { latitude: loc.lat, longitude: loc.lng, latitudeDelta: HOME_ZOOM_DELTA, longitudeDelta: HOME_ZOOM_DELTA },
+      500
+    );
+  };
+
+  const setFollowing = (on: boolean) => {
+    isFollowingRef.current = on;
+    setIsFollowingUser(on);
+  };
+  const handleFocusCurrentLocation = () => {
+    const loc = homeLocation;
+    if (!loc) return; // no real position known yet — never center on a guessed coordinate
+    setFollowing(true);
+    centerOnUser(loc);
+  };
   const lastFramedRef = useRef<{ lat: number; lng: number } | null>(null);
 
   const isEnRoute = rideState === 'driver_en_route' || rideState === 'accepted';
   const isInTransit = rideState === 'in_transit';
   const hasRoute = !!dropoff || isEnRoute || isInTransit;
   const isFollowing = (isEnRoute || isInTransit) && !!driverLocation;
+
+  // Home with Focus: the green pin IS the passenger's live position (not the booking pickup), and
+  // the Home camera centers on the same coordinate — one source for marker and camera.
+  const homeLocation = focusCurrentLocation && !hasRoute && currentLocation ? currentLocation : null;
+
+  // Following: every new live position (>= FOLLOW_MIN_MOVE_KM from the last centered one) moves
+  // the camera to exactly where the pin now is.
+  useEffect(() => {
+    if (!homeLocation || !isFollowingRef.current) return;
+    const last = followCenterRef.current;
+    if (!last || haversineKm(last, homeLocation) >= FOLLOW_MIN_MOVE_KM) centerOnUser(homeLocation);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [homeLocation?.lat, homeLocation?.lng]);
 
   // Derived from the caller's actual header/bottom-sheet heights (not a guessed geographic
   // offset) — react-native-maps applies this to every camera operation, including the plain
@@ -104,45 +159,41 @@ export default function TrivoraMapNative({
           { latitude: targetEnd.lat, longitude: targetEnd.lng },
         ];
         if (driverLocation) points.push({ latitude: driverLocation.lat, longitude: driverLocation.lng });
+        // Also fit the road route itself (sampled) so a route that bulges past its two endpoints
+        // is not clipped - the route is the trip's real extent, not the span of its two ends.
+        if (routeCoordinates && routeCoordinates.length > 0) {
+          const step = Math.max(1, Math.ceil(routeCoordinates.length / MAX_FIT_ROUTE_POINTS));
+          routeCoordinates.forEach((c, i) => {
+            if (i % step === 0 || i === routeCoordinates.length - 1) points.push({ latitude: c.lat, longitude: c.lng });
+          });
+        }
         mapRef.current.fitToCoordinates(points, { edgePadding, animated });
       } else {
         const map = mapRef.current;
+        // Single point (Home, no route yet): center EXACTLY on the pin's own coordinate (the live
+        // position on Home, otherwise pickup). No mapPadding is applied to a route-less map (see the MapView below), and
+        // there is no pixel/coordinate correction or timer: one camera call, nothing competing.
+        const pinPoint = homeLocation ?? pickup;
+        followCenterRef.current = homeLocation;
+        if (__DEV__) {
+          console.log(
+            `[passenger-map] animateToRegion target=(${pinPoint.lat}, ${pinPoint.lng}) marker=(${pinPoint.lat}, ${pinPoint.lng}) ` +
+              `mapPadding=none delta=${HOME_ZOOM_DELTA}`
+          );
+        }
         map.animateToRegion(
           {
-            latitude: pickup.lat,
-            longitude: pickup.lng,
-            latitudeDelta: 0.008,
-            longitudeDelta: 0.008,
+            latitude: pinPoint.lat,
+            longitude: pinPoint.lng,
+            latitudeDelta: HOME_ZOOM_DELTA,
+            longitudeDelta: HOME_ZOOM_DELTA,
           },
           animated ? 600 : 0
         );
-        // Single point (Home, no route yet) — fitToCoordinates has nothing to fit, and
-        // `mapPadding` alone isn't reliably honored for a plain region center on every
-        // provider/platform. Once the region above has settled, measure where pickup actually
-        // rendered and correct the center in pixel space (via the map's own current projection)
-        // so it lands in the middle of the VISIBLE area, not the full container.
-        if (topInset !== 0 || bottomInset !== 0) {
-          const verticalOffset = (topInset - bottomInset) / 2;
-          setTimeout(async () => {
-            try {
-              const point = await map.pointForCoordinate({ latitude: pickup.lat, longitude: pickup.lng });
-              const corrected = await map.coordinateForPoint({ x: point.x, y: point.y - verticalOffset });
-              map.animateToRegion(
-                {
-                  latitude: corrected.latitude,
-                  longitude: corrected.longitude,
-                  latitudeDelta: 0.008,
-                  longitudeDelta: 0.008,
-                },
-                animated ? 300 : 0
-              );
-            } catch {}
-          }, animated ? 650 : 50);
-        }
       }
       if (driverLocation) lastFramedRef.current = { lat: driverLocation.lat, lng: driverLocation.lng };
     },
-    [pickup.lat, pickup.lng, dropoff?.lat, dropoff?.lng, isEnRoute, driverLocation?.lat, driverLocation?.lng, edgePadding]
+    [pickup.lat, pickup.lng, dropoff?.lat, dropoff?.lng, isEnRoute, driverLocation?.lat, driverLocation?.lng, edgePadding, routeCoordinates, homeLocation?.lat, homeLocation?.lng]
   );
 
   // Auto-frame on mount and whenever the destination or ride phase changes — deliberately NOT
@@ -152,7 +203,10 @@ export default function TrivoraMapNative({
   useEffect(() => {
     frameRelevantPoints(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pickup.lat, pickup.lng, dropoff?.lat, dropoff?.lng, isEnRoute, isInTransit, edgePadding]);
+  // The route arrives asynchronously after the endpoints - re-fit when it does, but only while the
+  // trip is being PLANNED. During an active ride the route is re-fetched as the driver moves and
+  // must not keep re-animating the camera.
+  }, [pickup.lat, pickup.lng, dropoff?.lat, dropoff?.lng, isEnRoute, isInTransit, edgePadding, isEnRoute || isInTransit ? null : routeCoordinates]);
 
   // While following a driver, keep them (and the target) in frame as they move — but only once
   // they've moved meaningfully since the camera was last positioned, not on every tick.
@@ -175,22 +229,57 @@ export default function TrivoraMapNative({
 
   const isFallbackRoute = routeSource === 'fallback';
 
+  if (__DEV__ && driverLocation) {
+    console.log(`[passenger-driver-heading] latitude=${driverLocation.lat}`);
+    console.log(`[passenger-driver-heading] longitude=${driverLocation.lng}`);
+    console.log(`[passenger-driver-heading] heading=${driverLocation.heading} (value passed to rotation={heading})`);
+  }
+
+  if (__DEV__ && hasRoute) {
+    const first = polylineCoords[0];
+    const last = polylineCoords[polylineCoords.length - 1];
+    console.log(
+      `[passenger-route] count=${polylineCoords.length} source=${routeSource} ` +
+        `first=${first ? `(${first.latitude}, ${first.longitude})` : 'none'} ` +
+        `last=${last ? `(${last.latitude}, ${last.longitude})` : 'none'} ` +
+        `pickup=(${pickup.lat}, ${pickup.lng}) dropoff=${dropoff ? `(${dropoff.lat}, ${dropoff.lng})` : 'none'}`
+    );
+  }
+
+  // Same as the Driver Home map: native applies a mapPadding change asynchronously, so a Home map
+  // framed before the header/sheet heights are measured would be framed against the wrong (0)
+  // padding. Create Home's MapView only once both insets are known, so it starts with its final
+  // padding and centers the pin in the visible area from the first frame.
+  const homeInsetsMeasured = !homeLocation || (topInset > 0 && bottomInset > 0);
+  if (!homeInsetsMeasured) {
+    return <View style={[styles.container, style]} />;
+  }
+
   return (
     <View style={[styles.container, style]}>
       <MapView
         ref={mapRef}
         style={StyleSheet.absoluteFillObject}
         initialRegion={{
-          latitude: pickup.lat,
-          longitude: pickup.lng,
-          latitudeDelta: 0.008,
-          longitudeDelta: 0.008,
+          latitude: (homeLocation ?? pickup).lat,
+          longitude: (homeLocation ?? pickup).lng,
+          latitudeDelta: HOME_ZOOM_DELTA,
+          longitudeDelta: HOME_ZOOM_DELTA,
         }}
         mapType={Platform.OS === 'android' ? 'none' : 'standard'}
         customMapStyle={VOYAGER_MAP_STYLE}
         showsUserLocation={false}
+        onRegionChangeComplete={(_region, details) => {
+          // A manual pan/zoom pauses following and leaves the map where the user put it.
+          if (details?.isGesture && isFollowingRef.current) setFollowing(false);
+        }}
         showsCompass={false}
-        mapPadding={edgePadding}
+        // Home (live-location pin): mapPadding = the measured header/sheet insets, exactly like the
+        // Driver Home map — the native map then centers every camera move (initial region, Focus,
+        // follow) in the VISIBLE strip between header and sheet, with no pixel correction on top.
+        // Route framing (hasRoute) still gets NO mapPadding: fitToCoordinates carries the insets
+        // itself via edgePadding, and both together would apply them twice.
+        mapPadding={homeLocation ? edgePadding : undefined}
       >
         <UrlTile
           urlTemplate={CARTO_URL_TEMPLATE}
@@ -201,52 +290,25 @@ export default function TrivoraMapNative({
           zIndex={1}
         />
 
-        {/* TODA Terminal Markers */}
-        {showTodaPins &&
-          todaList.map((zone) => (
-            <Marker
-              key={zone.code}
-              zIndex={8}
-              coordinate={{ latitude: zone.centerLat, longitude: zone.centerLng }}
-              anchor={{ x: 0.5, y: 1 }}
-              onPress={(e) => {
-                e.stopPropagation();
-                onTodaPress?.(zone);
-              }}
-            >
-              <View style={styles.todaPinContainer}>
-                <View style={styles.todaPinDrop}>
-                  <View style={styles.todaPinIconInner}>
-                    <MapPin size={11} color="#FFFFFF" strokeWidth={2.5} />
-                  </View>
-                </View>
-              </View>
-            </Marker>
-          ))}
+        {/* Pickup / destination pins — static bitmap markers (assets/map/pin-*.png, 28x36 at 1x,
+            @2x/@3x variants), cropped so the pin's tip is the bottom-center pixel of the image.
+            Passed as the Marker `image` (not a React/SVG child), so the native map anchors the
+            bitmap itself: no view-to-bitmap snapshot whose bounds could differ from the visible
+            pin. anchor (0.5, 1) = bottom-center = the tip = the exact coordinate, at every zoom. */}
+        <Marker
+          zIndex={10}
+          coordinate={{ latitude: (homeLocation ?? pickup).lat, longitude: (homeLocation ?? pickup).lng }}
+          image={PICKUP_PIN_IMAGE}
+          anchor={{ x: 0.5, y: 1 }}
+        />
 
-        {/* Pickup Location Marker — same teardrop pin as the TODA markers above, recolored
-            green so pickup/dropoff/TODA all read as the same family of pin. */}
-        <Marker zIndex={10} coordinate={{ latitude: pickup.lat, longitude: pickup.lng }} anchor={{ x: 0.5, y: 1 }}>
-          <View style={styles.todaPinContainer}>
-            <View style={[styles.todaPinDrop, styles.pickupPinDrop]}>
-              <View style={styles.todaPinIconInner}>
-                <MapPin size={11} color="#FFFFFF" strokeWidth={2.5} />
-              </View>
-            </View>
-          </View>
-        </Marker>
-
-        {/* Dropoff Destination Marker — same pin, colored red */}
         {dropoff && (
-          <Marker zIndex={10} coordinate={{ latitude: dropoff.lat, longitude: dropoff.lng }} anchor={{ x: 0.5, y: 1 }}>
-            <View style={styles.todaPinContainer}>
-              <View style={[styles.todaPinDrop, styles.destPinDrop]}>
-                <View style={styles.todaPinIconInner}>
-                  <MapPin size={11} color="#FFFFFF" strokeWidth={2.5} />
-                </View>
-              </View>
-            </View>
-          </Marker>
+          <Marker
+            zIndex={10}
+            coordinate={{ latitude: dropoff.lat, longitude: dropoff.lng }}
+            image={DESTINATION_PIN_IMAGE}
+            anchor={{ x: 0.5, y: 1 }}
+          />
         )}
 
         {/* Moving Driver Marker */}
@@ -257,13 +319,20 @@ export default function TrivoraMapNative({
             rotation={driverLocation.heading}
             anchor={{ x: 0.5, y: 0.5 }}
           >
-            <TricycleMarker size={36} isDriver showEta etaText="3 MIN" heading={driverLocation.heading} />
+            {/* Same rendering as the Driver app's own map marker (TrivoraDriverMap.native.tsx):
+                white bubble + TricycleIcon, native rotation = heading with NO base offset. */}
+            <View style={styles.trikeBubble}>
+              <TricycleIcon size={20} color={COLORS.primary} accentColor="#3B82F6" />
+            </View>
           </Marker>
         )}
 
-        {/* Real road-following route (or a visibly-fallback straight line) */}
         {polylineCoords.length > 0 && (
           <Polyline
+            // Must sit ABOVE the basemap UrlTile (zIndex 1, shouldReplaceMapContent) and below the
+            // markers (10+). Left at the default 0 it is drawn UNDER the opaque tile overlay on
+            // native (notably Android/Expo Go) — the route exists but is invisible.
+            zIndex={2}
             coordinates={polylineCoords}
             strokeColor={isFallbackRoute ? '#94A3B8' : '#2563EB'}
             strokeWidth={isFallbackRoute ? 4 : 5}
@@ -287,16 +356,15 @@ export default function TrivoraMapNative({
         </View>
       )}
 
-      {/* Floating TODA Zone Pill */}
-      {showTodaPill && (
+      {/* Focus Current Location (Home only) — just above the bottom sheet; filled while following. */}
+      {focusCurrentLocation && !hasRoute && (
         <TouchableOpacity
-          style={styles.todaPill}
-          onPress={() => onTodaPress?.(activeZone || todaList[0])}
-          activeOpacity={0.88}
+          style={[styles.focusButton, { bottom: bottomInset + 12 }, isFollowingUser && styles.focusButtonActive]}
+          onPress={handleFocusCurrentLocation}
+          activeOpacity={0.8}
+          accessibilityLabel="Focus current location"
         >
-          <Shield size={12} color={COLORS.textInverse} />
-          <Text style={styles.todaPillText}>{activeZone?.name || 'TODA Bucana Zone'}</Text>
-          <ChevronRight size={14} color={COLORS.textInverse} />
+          <LocateFixed size={18} color={isFollowingUser ? '#FFFFFF' : COLORS.primary} />
         </TouchableOpacity>
       )}
 
@@ -311,6 +379,23 @@ export default function TrivoraMapNative({
 }
 
 const styles = StyleSheet.create({
+  focusButton: {
+    position: 'absolute',
+    right: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.97)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    ...SHADOWS.sm,
+  },
+  focusButtonActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
   container: {
     flex: 1,
     backgroundColor: '#FAF6EE',
@@ -345,39 +430,16 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     fontWeight: '500',
   },
-  todaPinContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  todaPinDrop: {
-    width: 24,
-    height: 24,
-    backgroundColor: '#1D2542',
-    borderTopLeftRadius: 12,
-    borderTopRightRadius: 12,
-    borderBottomLeftRadius: 12,
-    borderBottomRightRadius: 0,
-    transform: [{ rotate: '-45deg' }],
+  trikeBubble: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
     borderWidth: 2,
-    borderColor: '#FFFFFF',
+    borderColor: COLORS.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
-    elevation: 4,
-  },
-  todaPinIconInner: {
-    transform: [{ rotate: '45deg' }],
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pickupPinDrop: {
-    backgroundColor: '#059669',
-  },
-  destPinDrop: {
-    backgroundColor: '#EF4444',
+    ...SHADOWS.md,
   },
   todaPill: {
     position: 'absolute',

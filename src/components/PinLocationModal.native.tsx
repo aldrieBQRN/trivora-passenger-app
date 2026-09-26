@@ -1,11 +1,11 @@
 import React, { useRef } from 'react';
-import { View, StyleSheet, Platform } from 'react-native';
+import { StyleSheet, Platform } from 'react-native';
 import MapView, { Marker, Polyline, UrlTile, MapPressEvent } from 'react-native-maps';
-import { MapPin } from 'lucide-react-native';
+import { PICKUP_PIN_IMAGE, DESTINATION_PIN_IMAGE } from '../constants/mapPins';
 import { LocationPoint } from '../types';
 import { usePinLocation } from '../hooks/usePinLocation';
-import { TODA_ZONES } from '../constants/todaRoutes';
 import PinLocationSheet from './PinLocationSheet';
+import PinLocationPending from './PinLocationPending';
 
 const CARTO_URL_TEMPLATE =
   'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?key=cb1_3qo7_1_ac41fdc9883213d666d06544';
@@ -20,7 +20,7 @@ interface PinLocationModalProps {
   confirmLabel?: string;
 }
 
-export default function PinLocationModal({
+function PinLocationModalContent({
   visible,
   onClose,
   onConfirmPin,
@@ -30,12 +30,25 @@ export default function PinLocationModal({
   confirmLabel,
 }: PinLocationModalProps) {
   const mapRef = useRef<MapView | null>(null);
-  const { pinnedLocation, routeCoordinates, routeSource, isResolving, pickPoint, pickToda, todaList } = usePinLocation(
+  const {
+    pinnedLocation,
+    routeCoordinates,
+    routeSource,
+    isResolving,
+    pickPoint,
+    awaitingLocation,
+    isLocating,
+    locationError,
+    retryLocation,
+  } = usePinLocation(
     currentPickup,
-    initialLocation
+    initialLocation,
+    mode
   );
 
-  if (!visible) return null;
+  if (awaitingLocation) {
+    return <PinLocationPending isLocating={isLocating} error={locationError} onRetry={retryLocation} onClose={onClose} />;
+  }
 
   const handlePress = (e: MapPressEvent) => {
     const { latitude, longitude } = e.nativeEvent.coordinate;
@@ -88,59 +101,35 @@ export default function PinLocationModal({
           zIndex={1}
         />
 
-        {/* TODA Terminal Markers */}
-        {(todaList || TODA_ZONES).map((zone) => (
-          <Marker
-            key={zone.code}
-            coordinate={{ latitude: zone.centerLat, longitude: zone.centerLng }}
-            onPress={(e) => {
-              e.stopPropagation();
-              pickToda(zone);
-              mapRef.current?.animateToRegion(
-                {
-                  latitude: zone.centerLat,
-                  longitude: zone.centerLng,
-                  latitudeDelta: 0.01,
-                  longitudeDelta: 0.01,
-                },
-                500
-              );
-            }}
-            anchor={{ x: 0.5, y: 1 }}
-          >
-            <View style={styles.todaPinContainer}>
-              <View style={styles.todaPinDrop}>
-                <View style={styles.todaPinIconInner}>
-                  <MapPin size={12} color="#FFFFFF" strokeWidth={2.5} />
-                </View>
-              </View>
-            </View>
-          </Marker>
-        ))}
-
-        {/* currentPickup is really just "the other, unchanged endpoint" — in pickup mode that's
-            actually the destination, so its color must follow what it represents, not its prop
-            name. The pin being dropped is colored by what it's ABOUT TO BECOME, not a fixed
-            "pinning = destination" assumption — this is the part that was backwards before. */}
+        {/* Same static pins as the booking map (constants/mapPins) — tip anchored (0.5, 1).
+            currentPickup is really "the other, unchanged endpoint": in pickup mode that's the
+            destination (red), in destination mode the pickup (green); the pin being dropped is
+            colored by what it's ABOUT TO BECOME. */}
         {currentPickup && (
-          <Marker coordinate={{ latitude: currentPickup.lat, longitude: currentPickup.lng }} anchor={{ x: 0.5, y: 0.5 }}>
-            <View style={mode === 'pickup' ? styles.referenceDotRed : styles.referenceDotGreen} />
-          </Marker>
+          <Marker
+            zIndex={10}
+            coordinate={{ latitude: currentPickup.lat, longitude: currentPickup.lng }}
+            image={mode === 'pickup' ? DESTINATION_PIN_IMAGE : PICKUP_PIN_IMAGE}
+            anchor={{ x: 0.5, y: 1 }}
+          />
         )}
 
         <Marker
+          zIndex={11}
           coordinate={{ latitude: pinnedLocation.lat, longitude: pinnedLocation.lng }}
-          anchor={{ x: 0.5, y: 0.5 }}
+          image={mode === 'pickup' ? PICKUP_PIN_IMAGE : DESTINATION_PIN_IMAGE}
+          anchor={{ x: 0.5, y: 1 }}
           onPress={(e) => {
             e.stopPropagation();
             handleRecenter();
           }}
-        >
-          <View style={mode === 'pickup' ? styles.pinBubbleGreen : styles.pinBubbleRed} />
-        </Marker>
+        />
 
         {routeCoordinates.length > 0 && (
           <Polyline
+            // Above the basemap UrlTile (zIndex 1), below the pins (10+) — at the default 0 the
+            // route is drawn under the opaque tile overlay and never shows.
+            zIndex={2}
             coordinates={routeCoordinates.map((c) => ({ latitude: c.lat, longitude: c.lng }))}
             strokeColor={routeSource === 'fallback' ? '#94A3B8' : '#2563EB'}
             strokeWidth={routeSource === 'fallback' ? 4 : 5}
@@ -152,65 +141,9 @@ export default function PinLocationModal({
   );
 }
 
-const styles = StyleSheet.create({
-  referenceDotGreen: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 3,
-    borderColor: '#059669',
-  },
-  referenceDotRed: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 3,
-    borderColor: '#EF4444',
-  },
-  pinBubbleGreen: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#059669',
-    borderWidth: 2,
-    borderColor: '#FFFFFF',
-  },
-  pinBubbleRed: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#EF4444',
-    borderWidth: 2,
-    borderColor: '#FFFFFF',
-  },
-  todaPinContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  todaPinDrop: {
-    width: 26,
-    height: 26,
-    backgroundColor: '#1D2542',
-    borderTopLeftRadius: 13,
-    borderTopRightRadius: 13,
-    borderBottomLeftRadius: 13,
-    borderBottomRightRadius: 0,
-    transform: [{ rotate: '-45deg' }],
-    borderWidth: 2,
-    borderColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
-    elevation: 4,
-  },
-  todaPinIconInner: {
-    transform: [{ rotate: '45deg' }],
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
+/** Mounts the content only while open, so each opening starts fresh — in particular Pin Pickup
+ * Location re-acquires the user's current position every time it is opened. */
+export default function PinLocationModal(props: PinLocationModalProps) {
+  if (!props.visible) return null;
+  return <PinLocationModalContent {...props} />;
+}

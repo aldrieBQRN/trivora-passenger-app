@@ -37,7 +37,7 @@ const SLIDES = [
     key: 'finding',
     image: require('../../assets/onboarding/onboarding-2-finding-a-ride.png'),
     title: "We'll Find You a Driver",
-    description: 'Get matched with a verified TODA tricycle nearby and track them on the way.',
+    description: 'Get matched with a verified tricycle nearby and track them on the way.',
   },
   {
     key: 'journey',

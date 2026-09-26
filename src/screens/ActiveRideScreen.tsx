@@ -20,7 +20,6 @@ export default function ActiveRideScreen({ topInset = 0 }: ActiveRideScreenProps
     fareEstimate,
     pickup,
     dropoff,
-    matchedToda,
     paymentMethod,
     tripRemainingKm,
     routeCoordinates,
@@ -64,9 +63,7 @@ export default function ActiveRideScreen({ topInset = 0 }: ActiveRideScreenProps
           distance: `${tripRemainingKm} km`,
           duration: `${fareEstimate.durationMinutes} min`,
         }}
-        activeZone={matchedToda}
         rideState="in_transit"
-        showTodaPill={false}
         showCompass={true}
         topInset={topInset + 10 + topOverlayHeight}
         bottomInset={sheetHeight}
@@ -95,7 +92,11 @@ export default function ActiveRideScreen({ topInset = 0 }: ActiveRideScreenProps
               <Text style={styles.ratingText}>{activeDriver.rating}</Text>
               <Text style={styles.tripsText}>· {activeDriver.trips} rides</Text>
             </View>
-            <Text style={styles.todaName}>{activeDriver.todaName || 'TODA Bucana'}</Text>
+            <Text style={styles.vehicleInfo}>
+              {activeDriver.tricycle?.plateNumber
+                ? `${activeDriver.tricycle.model || 'Tricycle'} • ${activeDriver.tricycle.plateNumber}`
+                : 'Verified Tricycle'}
+            </Text>
           </View>
 
           <View style={styles.fareCol}>
@@ -228,7 +229,7 @@ const styles = StyleSheet.create({
     ...TYPOGRAPHY.caption,
     color: COLORS.textSecondary,
   },
-  todaName: {
+  vehicleInfo: {
     ...TYPOGRAPHY.caption,
     color: COLORS.primary,
     fontWeight: '700',

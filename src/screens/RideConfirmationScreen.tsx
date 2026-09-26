@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput } from 'react-native';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '../constants/theme';
 import { useBooking } from '../context/BookingContext';
+import { calculateFare } from '../constants/todaRoutes';
 import { MessageSquare, ArrowLeft } from 'lucide-react-native';
 import { CashIcon } from '../components/icons';
 import TrivoraMap from '../components/TrivoraMap';
@@ -27,25 +28,25 @@ export default function RideConfirmationScreen() {
   } = useBooking();
   const [isConfirming, setIsConfirming] = useState(false);
   const [numberOfPassengers, setNumberOfPassengers] = useState('1');
-  const [farePerPassenger, setFarePerPassenger] = useState(() =>
-    fareEstimate.total > 0 ? fareEstimate.total.toFixed(2) : ''
-  );
-  const [errors, setErrors] = useState<{ numberOfPassengers?: string; farePerPassenger?: string }>({});
+  const [errors, setErrors] = useState<{ numberOfPassengers?: string }>({});
 
   const parsedPassengerCount = Number(numberOfPassengers);
-  const parsedFarePerPassenger = Number(farePerPassenger);
-  const computedTotalFare =
-    PASSENGER_COUNT_PATTERN.test(numberOfPassengers.trim()) && parsedFarePerPassenger > 0
-      ? parsedPassengerCount * parsedFarePerPassenger
-      : 0;
+  const isPassengerCountValid = PASSENGER_COUNT_PATTERN.test(numberOfPassengers.trim());
+  // The one place this screen computes fare: mirrors FareService on the backend exactly (same
+  // function used everywhere else in the app), fed the real route distance plus whatever
+  // passenger count is currently typed — never a manual multiplication of an already-computed
+  // total. Falls back to 1 passenger for the live preview while the field is mid-edit/invalid;
+  // the Confirm button itself stays gated on isPassengerCountValid regardless.
+  const liveFare = useMemo(
+    () => calculateFare(fareEstimate.distanceKm, undefined, isPassengerCountValid ? parsedPassengerCount : 1),
+    [fareEstimate.distanceKm, isPassengerCountValid, parsedPassengerCount]
+  );
+  const hasAdditionalDistance = liveFare.distanceKm > 4;
 
   const validate = () => {
-    const nextErrors: { numberOfPassengers?: string; farePerPassenger?: string } = {};
+    const nextErrors: { numberOfPassengers?: string } = {};
     if (!PASSENGER_COUNT_PATTERN.test(numberOfPassengers.trim())) {
       nextErrors.numberOfPassengers = 'Enter a whole number of passengers (1 or more)';
-    }
-    if (!Number.isFinite(parsedFarePerPassenger) || parsedFarePerPassenger <= 0) {
-      nextErrors.farePerPassenger = 'Enter a valid fare per passenger';
     }
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
@@ -55,7 +56,7 @@ export default function RideConfirmationScreen() {
     if (isConfirming) return;
     if (!validate()) return;
     setIsConfirming(true);
-    await confirmBooking(parsedPassengerCount, parsedFarePerPassenger);
+    await confirmBooking(parsedPassengerCount);
     // On success this screen has already been replaced by SearchingDriversScreen (screenState
     // moved to 'searching'), so this only visibly matters on failure — resetting the button
     // instead of leaving it stuck mid-spin after the toast.
@@ -78,8 +79,6 @@ export default function RideConfirmationScreen() {
           }}
           routeCoordinates={routeCoordinates}
           routeSource={routeSource}
-          showTodaPill={false}
-          showTodaPins={false}
           showCompass={false}
           showRouteBadge={false}
           style={StyleSheet.absoluteFillObject}
@@ -117,36 +116,38 @@ export default function RideConfirmationScreen() {
             />
             {errors.numberOfPassengers ? <Text style={styles.errorText}>{errors.numberOfPassengers}</Text> : null}
           </View>
-          <View style={styles.fareInputGroup}>
-            <Text style={styles.sectionLabel}>Fare per Passenger / Head</Text>
-            <View style={[styles.fareInputRow, errors.farePerPassenger && styles.fareInputError]}>
-              <Text style={styles.farePrefix}>₱</Text>
-              <TextInput
-                style={styles.fareInputFlex}
-                keyboardType="decimal-pad"
-                value={farePerPassenger}
-                onChangeText={(text) => {
-                  setFarePerPassenger(text);
-                  if (errors.farePerPassenger) setErrors((prev) => ({ ...prev, farePerPassenger: undefined }));
-                }}
-                placeholder="0.00"
-                placeholderTextColor={COLORS.textMuted}
-              />
-            </View>
-            {errors.farePerPassenger ? <Text style={styles.errorText}>{errors.farePerPassenger}</Text> : null}
-          </View>
         </View>
 
-        {/* Fare is the loudest thing on this screen — everything else is secondary */}
+        {/* Fare is the loudest thing on this screen — everything else is secondary. Base fare is
+            ₱50 flat for 1 passenger, or ₱25 per passenger for 2+, both covering the first 4 km;
+            every km beyond that adds ₱5 per passenger — this preview is only ever a preview: the
+            backend recomputes and stores the authoritative amount from the same distance and
+            passenger count the moment the booking is confirmed. */}
         <View style={styles.fareHero}>
           <Text style={styles.fareHeroLabel}>Total Fare</Text>
-          <Text style={styles.fareHeroValue}>₱{computedTotalFare.toFixed(2)}</Text>
+          <Text style={styles.fareHeroValue}>₱{liveFare.total.toFixed(2)}</Text>
           <View style={styles.fareBreakdownRow}>
             <Text style={styles.fareBreakdownItem}>
-              ₱{(Number.isFinite(parsedFarePerPassenger) ? parsedFarePerPassenger : 0).toFixed(2)} ×{' '}
-              {PASSENGER_COUNT_PATTERN.test(numberOfPassengers.trim()) ? parsedPassengerCount : 0} passenger
-              {parsedPassengerCount === 1 ? '' : 's'}
+              {liveFare.passengerCount === 1
+                ? `Base fare (up to 4 km): ₱${liveFare.base.toFixed(2)}`
+                : `Base fare (up to 4 km, per passenger): ₱${liveFare.base.toFixed(2)} × ${liveFare.passengerCount}`}
             </Text>
+          </View>
+          {hasAdditionalDistance && (
+            <View style={styles.fareBreakdownRow}>
+              <Text style={styles.fareBreakdownItem}>
+                Additional distance (₱5.00/km, per passenger): ₱{liveFare.distanceFee.toFixed(2)}
+              </Text>
+            </View>
+          )}
+          <View style={styles.fareDivider} />
+          <View style={styles.fareBreakdownRow}>
+            <Text style={styles.fareSummaryItem}>Fare per passenger</Text>
+            <Text style={styles.fareSummaryValue}>₱{liveFare.perPassengerFare.toFixed(2)}</Text>
+          </View>
+          <View style={styles.fareBreakdownRow}>
+            <Text style={styles.fareSummaryItem}>Passenger count</Text>
+            <Text style={styles.fareSummaryValue}>× {liveFare.passengerCount}</Text>
           </View>
         </View>
 
@@ -234,29 +235,9 @@ const styles = StyleSheet.create({
     ...TYPOGRAPHY.body,
     color: COLORS.textPrimary,
   },
-  fareInputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    height: 48,
-    backgroundColor: COLORS.surfaceInput,
-    borderRadius: RADIUS.md,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    paddingHorizontal: SPACING.md,
-    gap: 4,
-  },
   fareInputError: {
     borderColor: COLORS.dangerBorder,
     backgroundColor: COLORS.dangerLight,
-  },
-  farePrefix: {
-    ...TYPOGRAPHY.body,
-    color: COLORS.textSecondary,
-  },
-  fareInputFlex: {
-    flex: 1,
-    ...TYPOGRAPHY.body,
-    color: COLORS.textPrimary,
   },
   errorText: {
     ...TYPOGRAPHY.caption,
@@ -281,12 +262,28 @@ const styles = StyleSheet.create({
   fareBreakdownRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 8,
     marginTop: 8,
   },
   fareBreakdownItem: {
     ...TYPOGRAPHY.caption,
     color: COLORS.textSecondary,
+  },
+  fareDivider: {
+    width: '60%',
+    height: 1,
+    backgroundColor: COLORS.border,
+    marginTop: 10,
+  },
+  fareSummaryItem: {
+    ...TYPOGRAPHY.bodySmall,
+    color: COLORS.textSecondary,
+  },
+  fareSummaryValue: {
+    ...TYPOGRAPHY.bodySmall,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
   },
   sectionLabel: {
     ...TYPOGRAPHY.label,

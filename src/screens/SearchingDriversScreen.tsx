@@ -6,7 +6,7 @@ import { TricycleIcon } from '../components/icons';
 import { X } from 'lucide-react-native';
 
 export default function SearchingDriversScreen() {
-  const { cancelBooking, searchCountdown, searchStatusText } = useBooking();
+  const { cancelBooking, searchCountdown, searchStatusText, dispatchState } = useBooking();
 
   const pulseRing1 = useRef(new Animated.Value(1)).current;
   const pulseRing2 = useRef(new Animated.Value(1)).current;
@@ -47,7 +47,7 @@ export default function SearchingDriversScreen() {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.title}>Searching for a Driver</Text>
+        <Text style={styles.title}>{dispatchState === 'driver_found' ? 'Driver Found' : 'Searching for a Driver'}</Text>
         <Text style={styles.subtitle}>{searchStatusText}</Text>
       </View>
 

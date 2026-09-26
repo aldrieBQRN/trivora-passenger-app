@@ -64,33 +64,15 @@ export default function PinLocationSheet({
 
         <View style={styles.bottomSheet}>
           <View style={styles.locationHeaderRow}>
-            <View
-              style={[
-                styles.pinBadgeCircle,
-                pinnedLocation.todaName ? styles.pinBadgeCircleToda : styles.pinBadgeCircleStandard,
-              ]}
-            >
-              <MapPin size={18} color={pinnedLocation.todaName ? '#1D2542' : '#EF4444'} />
+            <View style={[styles.pinBadgeCircle, styles.pinBadgeCircleStandard]}>
+              <MapPin size={18} color="#EF4444" />
             </View>
             <View style={styles.locationMetaCol}>
               <View style={styles.titleRow}>
                 <Text style={styles.pinnedTitle} numberOfLines={1}>
-                  {isResolving ? 'Resolving location...' : (pinnedLocation.todaName || pinnedLocation.name)}
+                  {isResolving ? 'Resolving location...' : pinnedLocation.name}
                 </Text>
-                {(pinnedLocation.todaName || pinnedLocation.category === 'TODA Terminal') && (
-                  <View style={styles.todaBadge}>
-                    <Text style={styles.todaBadgeText}>TODA</Text>
-                  </View>
-                )}
               </View>
-
-              {pinnedLocation.terminalName ? (
-                <View style={styles.terminalRow}>
-                  <Text style={styles.terminalNameText} numberOfLines={1}>
-                    {pinnedLocation.terminalName}
-                  </Text>
-                </View>
-              ) : null}
 
               <Text style={styles.pinnedAddress} numberOfLines={2}>
                 {pinnedLocation.address}
@@ -197,10 +179,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
   },
-  pinBadgeCircleToda: {
-    backgroundColor: '#EEF2FF',
-    borderColor: '#C7D2FE',
-  },
   pinBadgeCircleStandard: {
     backgroundColor: '#FEE2E2',
     borderColor: '#FECACA',
@@ -212,26 +190,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-  },
-  terminalRow: {
-    marginTop: 2,
-  },
-  terminalNameText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: COLORS.textPrimary,
-  },
-  todaBadge: {
-    backgroundColor: '#1D2542',
-    paddingHorizontal: 6,
-    paddingVertical: 1.5,
-    borderRadius: RADIUS.sm,
-  },
-  todaBadgeText: {
-    color: '#FFFFFF',
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 0.5,
   },
   pinnedTitle: {
     fontSize: 14,

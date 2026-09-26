@@ -42,8 +42,18 @@ export interface SavedPlace {
 }
 
 export interface FareCalculation {
+  /** Base fare for trips up to and including 4 km: ₱50 flat for exactly 1 passenger, or ₱25 per
+   * passenger for 2 or more. */
   base: number;
+  /** Per-passenger additional-distance charge — ₱5 per km beyond 4 km, billed continuously
+   * (a partial km is charged proportionally, not rounded up). */
   distanceFee: number;
+  /** base + distanceFee — the fare charged per rider. Same value as `total` when passengerCount
+   * is 1; the field to display for a "fare per passenger" line at any other count. */
+  perPassengerFare: number;
+  /** The passenger count this FareCalculation was computed for. */
+  passengerCount: number;
+  /** perPassengerFare * passengerCount — the final trip total. */
   total: number;
   distanceKm: number;
   durationMinutes: number;
@@ -82,7 +92,7 @@ export interface DriverInfo {
   avatarUrl?: string;
   tricycle: {
     plateNumber: string;
-    bodyNumber: string;
+    codingNumber: string;
     model: string;
     color?: string;
   };
@@ -110,21 +120,8 @@ export interface HistoryItem {
   driverName?: string;
   plateNumber?: string;
   rating?: number | null;
-}
-
-export type ReportCategory = 'driver' | 'vehicle' | 'fare' | 'booking' | 'pickup_dropoff' | 'other';
-
-export type ReportStatus = 'submitted' | 'under_review' | 'resolved';
-
-export interface ReportItem {
-  id: number;
-  category: ReportCategory;
-  description: string;
-  status: ReportStatus;
-  bookingId: number | null;
-  bookingPickup: string | null;
-  bookingDropoff: string | null;
-  createdAt: string;
+  /** Optional so existing hardcoded demo entries stay valid — real entries always carry this. */
+  passengerCount?: number;
 }
 
 export interface UserProfile {
@@ -162,11 +159,13 @@ export interface TripReceipt {
   durationMinutes: number;
   baseFare: number;
   distanceFee: number;
+  farePerPassenger: number;
+  passengerCount: number;
   totalFare: number;
   paymentMethod: PaymentMethod;
   driverName: string;
   plateNumber: string;
-  bodyNumber: string;
-  todaName: string;
+  codingNumber: string;
+  todaName?: string;
   mtopNumber: string;
 }

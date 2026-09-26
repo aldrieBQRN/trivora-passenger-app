@@ -34,12 +34,11 @@ import ActiveRideScreen from './src/screens/ActiveRideScreen';
 import TripCompletedScreen from './src/screens/TripCompletedScreen';
 import RateReviewScreen from './src/screens/RateReviewScreen';
 import HistoryScreen from './src/screens/HistoryScreen';
-import ReportsScreen from './src/screens/ReportsScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 
-import { Home, Receipt, MessageSquareWarning, User, LucideIcon } from 'lucide-react-native';
+import { Home, Receipt, User, LucideIcon } from 'lucide-react-native';
 
-type TabKey = 'home' | 'trips' | 'reports' | 'profile';
+type TabKey = 'home' | 'trips' | 'profile';
 
 interface TabButtonProps {
   label: string;
@@ -195,10 +194,6 @@ function PassengerAppNavigator() {
       return <HistoryScreen onBackToMap={() => setActiveTab('home')} />;
     }
 
-    if (activeTab === 'reports') {
-      return <ReportsScreen />;
-    }
-
     if (activeTab === 'profile') {
       return <ProfileScreen />;
     }
@@ -256,7 +251,7 @@ function PassengerAppNavigator() {
           {renderCurrentScreen()}
         </View>
 
-        {/* 4 evenly balanced tabs — booking is already available from Home's own "Book a
+        {/* 3 evenly balanced tabs — booking is already available from Home's own "Book a
             Tricycle" action, so the tab bar no longer needs a center FAB for it, matching
             the Driver app's flat tab-bar layout. */}
         {isTabVisible && (
@@ -277,12 +272,6 @@ function PassengerAppNavigator() {
               icon={Receipt}
               isActive={activeTab === 'trips'}
               onPress={() => setActiveTab('trips')}
-            />
-            <TabButton
-              label="Reports"
-              icon={MessageSquareWarning}
-              isActive={activeTab === 'reports'}
-              onPress={() => setActiveTab('reports')}
             />
             <TabButton
               label="Profile"

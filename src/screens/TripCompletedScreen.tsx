@@ -43,7 +43,7 @@ export default function TripCompletedScreen() {
         <View style={styles.actionsCol}>
           <View style={styles.primaryActionGroup}>
             <Button label="Rate Your Driver" onPress={() => setScreenState('rate_review')} />
-            <Text style={styles.rateCaption}>Help keep TODA operators accountable</Text>
+            <Text style={styles.rateCaption}>Help keep drivers accountable</Text>
           </View>
 
           <TouchableOpacity

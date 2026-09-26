@@ -4,12 +4,27 @@ import { DriverProfile, UserProfile, HistoryItem, SavedPlace, TodaZone } from '.
 import { TODA_ZONES } from '../constants/todaRoutes';
 
 function getDefaultApiBaseUrl(): string {
-  if (process.env.EXPO_PUBLIC_API_URL) {
-    return process.env.EXPO_PUBLIC_API_URL.trim().replace(/\/+$/, '');
-  }
+  const envUrl = process.env.EXPO_PUBLIC_API_URL?.trim().replace(/\/+$/, '');
+  const isPlaceholder = Boolean(envUrl && envUrl.includes('your-ngrok-url'));
 
   if (Platform.OS === 'web') {
+    if (typeof window !== 'undefined' && window.location) {
+      const hostname = window.location.hostname;
+      if (hostname === 'localhost' || hostname === '127.0.0.1') {
+        return 'http://localhost:8000/api/v1';
+      }
+      if (hostname && (!envUrl || isPlaceholder)) {
+        return `http://${hostname}:8000/api/v1`;
+      }
+    }
+    if (envUrl && !isPlaceholder) {
+      return envUrl;
+    }
     return 'http://localhost:8000/api/v1';
+  }
+
+  if (envUrl && !isPlaceholder) {
+    return envUrl;
   }
 
   // In Expo Go on physical device, hostUri holds the development machine's LAN IP
@@ -179,24 +194,6 @@ export const passengerApi = {
     return request(`/passenger/bookings/history?${params.toString()}`);
   },
 
-  getReports: async (passengerId: number) => {
-    const params = new URLSearchParams();
-    params.append('user_id', String(passengerId));
-    return request(`/passenger/reports?${params.toString()}`);
-  },
-
-  submitReport: async (payload: {
-    user_id: number;
-    category: string;
-    description: string;
-    booking_id?: number | null;
-  }) => {
-    return request('/passenger/reports', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
-  },
-
   getSavedPlaces: async () => {
     return request('/passenger/saved-places');
   },
@@ -296,10 +293,9 @@ export function mapBookingDriverToProfile(booking: any): DriverProfile | null {
     mobile: driver.mobile_number || '',
     rating: Number(driver.rating ?? 5.0),
     trips: Number(driver.total_trips ?? 0),
-    todaName: booking.toda_zone?.name,
     tricycle: {
       plateNumber: tricycle.plate_number || 'N/A',
-      bodyNumber: tricycle.body_number || tricycle.coding_scheme_number || 'N/A',
+      codingNumber: tricycle.coding_scheme_number || tricycle.body_number || 'N/A',
       model: tricycle.make_model || `${tricycle.make || ''} ${tricycle.model || ''}`.trim() || 'N/A',
     },
     distanceKm: 0,
@@ -335,18 +331,6 @@ export function mapBookingRecordToHistoryItem(raw: any): HistoryItem {
   };
 }
 
-/**
- * Fetches the active TODA zones configured in the Web TMO TODA dashboard.
- * Falls back to static TODA_ZONES if network request fails or server is unreachable.
- */
 export async function fetchTodaZones(): Promise<TodaZone[]> {
-  try {
-    const res = await request<{ success: boolean; data: TodaZone[] }>('/toda-zones');
-    if (res?.data && Array.isArray(res.data) && res.data.length > 0) {
-      return res.data;
-    }
-  } catch (err) {
-    // Graceful fallback to static definitions
-  }
-  return TODA_ZONES;
+  return [];
 }

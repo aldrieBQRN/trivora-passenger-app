@@ -148,7 +148,7 @@ export default function DriverEnRouteScreen({ topInset = 0 }: DriverEnRouteScree
             <View style={styles.platePill}>
               <Text style={styles.plateText}>{activeDriver.tricycle.plateNumber}</Text>
             </View>
-            <Text style={styles.vehicleType}>Unit {activeDriver.tricycle.bodyNumber}</Text>
+            <Text style={styles.vehicleType}>Unit {activeDriver.tricycle.codingNumber}</Text>
           </View>
         </View>
 

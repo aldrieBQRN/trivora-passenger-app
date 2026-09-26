@@ -1,9 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, SectionList, TouchableOpacity } from 'react-native';
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '../constants/theme';
 import { useBooking } from '../context/BookingContext';
 import { HistoryItem, TripReceipt } from '../types';
 import { ChevronRight, Receipt, Star } from 'lucide-react-native';
+import { calculateFare } from '../constants/todaRoutes';
 import TripReceiptModal from '../components/TripReceiptModal';
 import EmptyState from '../components/EmptyState';
 import RouteSummaryStrip from '../components/RouteSummaryStrip';
@@ -23,9 +24,16 @@ const FILTER_OPTIONS = [
 ];
 
 export default function HistoryScreen({ onBackToMap: _onBackToMap }: HistoryScreenProps) {
-  const { historyList, startRatingBooking } = useBooking();
+  const { historyList, startRatingBooking, refreshHistory } = useBooking();
   const [activeFilter, setActiveFilter] = useState<FilterTab>('All');
   const [selectedReceipt, setSelectedReceipt] = useState<TripReceipt | null>(null);
+
+  // Silent one-shot re-sync of the list whenever History is opened — the local filter and the
+  // open-receipt modal above are untouched by it, and it never runs again while the screen is
+  // up (no polling, no interruption to anything the passenger is doing).
+  useEffect(() => {
+    refreshHistory();
+  }, [refreshHistory]);
 
   const filteredData = useMemo(
     () => historyList.filter((item) => activeFilter === 'All' || item.status === activeFilter),
@@ -46,6 +54,11 @@ export default function HistoryScreen({ onBackToMap: _onBackToMap }: HistoryScre
 
   const openReceiptForHistory = (item: HistoryItem) => {
     if (item.status === 'Cancelled') return;
+    // The base/additional-distance/per-passenger split is only ever a display breakdown —
+    // item.fare (the real backend-computed total) is what's actually shown as the amount paid,
+    // never recomputed here. Legacy demo entries with no recorded passengerCount default to 1.
+    const historyPassengerCount = item.passengerCount ?? 1;
+    const fareBreakdown = calculateFare(item.distanceKm, undefined, historyPassengerCount);
     setSelectedReceipt({
       bookingCode: item.bookingCode,
       date: item.date,
@@ -56,15 +69,17 @@ export default function HistoryScreen({ onBackToMap: _onBackToMap }: HistoryScre
       dropoff: item.dropoff,
       distanceKm: item.distanceKm,
       durationMinutes: item.durationMinutes,
-      baseFare: 20.0,
-      distanceFee: Math.max(0, item.fare - 20.0),
+      baseFare: fareBreakdown.base,
+      distanceFee: fareBreakdown.distanceFee,
+      farePerPassenger: fareBreakdown.perPassengerFare,
+      passengerCount: historyPassengerCount,
       totalFare: item.fare,
       paymentMethod: 'cash',
       driverName: item.driverName || 'Juan Dela Cruz',
       plateNumber: item.plateNumber || 'ABC 1234',
-      bodyNumber: '04-128',
+      codingNumber: '04-128',
       todaName: 'TODA Bucana',
-      mtopNumber: 'MTOP-2024-0089',
+      mtopNumber: '',
     });
   };
 

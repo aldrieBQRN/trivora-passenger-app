@@ -41,5 +41,11 @@ export interface TrivoraMapProps {
   bottomInset?: number;
   onTodaPress?: (zone: TodaZone) => void;
   onRecenter?: () => void;
+  /** Home only: shows a Focus Current Location button. Tapping it centers on the user's latest
+   * real GPS position and follows them as they move until they pan/zoom the map manually. */
+  focusCurrentLocation?: boolean;
+  /** The user's latest known real GPS position from the app's existing location state — the
+   * starting point for Focus before the map's own location updates arrive. Never a default. */
+  currentLocation?: { lat: number; lng: number } | null;
   style?: any;
 }

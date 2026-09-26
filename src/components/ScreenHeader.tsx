@@ -13,7 +13,7 @@ interface ScreenHeaderProps {
 }
 
 /**
- * Plain, title-only header for inner/secondary pages (Ride History, Reports & Concerns, etc.) —
+ * Plain, title-only header for inner/secondary pages (Ride History, Saved Places, etc.) —
  * ported from the Driver app's ScreenHeader "solid" variant so both apps' inner pages share the
  * same height, padding, typography, and back-navigation treatment. Deliberately has no subtitle
  * or profile content — that's Home's job, not a secondary page's; the optional right icon covers

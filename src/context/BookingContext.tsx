@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback, ReactNode } from 'react';
 import {
   LocationPoint,
   TodaZone,
@@ -36,15 +36,17 @@ export type PickupMode = 'current_location' | 'manual';
 const BOOKING_MODE: 'real' | 'simulated' =
   process.env.EXPO_PUBLIC_BOOKING_MODE === 'simulated' ? 'simulated' : 'real';
 
-/** How often the passenger polls the real backend for booking status changes while waiting. */
-const ACTIVE_BOOKING_POLL_MS = 4000;
+/** How often the passenger polls the real backend for booking status changes while waiting.
+ * Standard 5-second background data refresh — deliberately independent of GPS transmission:
+ * a data poll never records a location, and a location ping never reloads a screen. */
+const ACTIVE_BOOKING_POLL_MS = 5000;
 
-/** Length of each real-mode search display cycle. The backend already broadcasts a pending
- * booking to every online/available driver in the matching TODA zone at once (see
- * BookingController::getPendingRequests) and keeps it open to all of them until one accepts —
- * there's no single targeted driver to "time out" and replace. So instead of freezing once the
- * countdown reaches zero, real mode loops it back to a fresh cycle and keeps broadcasting until
- * a driver accepts (detected by the active-booking poll) or the passenger cancels. */
+/** Length of each real-mode "estimated match time" display cycle. This is a purely cosmetic
+ * MM:SS countdown loop — the backend dispatches sequentially to ONE nearest eligible driver at a
+ * time (see BookingDispatchService) with its own server-side offer timeout, so this local timer
+ * never drives the passenger-facing state or label text (see `dispatch_state`/searchStatusText
+ * below, sourced from the active-booking poll's response, not from this loop). It just keeps a
+ * "still working on it" clock visible while the real dispatch cycles through drivers underneath. */
 const REAL_SEARCH_CYCLE_SECONDS = 60;
 
 /** How far the driver must move from the route's last-fetched origin before the real
@@ -106,9 +108,18 @@ interface BookingContextType {
   setNoteToDriver: (note: string) => void;
   activeDriver: DriverProfile;
   historyList: HistoryItem[];
+  /** Silently re-fetches the account's completed/cancelled bookings from the backend (see the
+   * refreshHistory definition in the provider). One-shot — callers invoke it on screen entry,
+   * never on an interval. */
+  refreshHistory: () => void;
   addHistoryItem: (item: HistoryItem) => void;
   searchCountdown: number;
   searchStatusText: string;
+  /** Backend-authoritative dispatch phase while screenState is 'searching': 'driver_found' means
+   * a specific nearest eligible driver currently holds an active offer for this booking (waiting
+   * on their accept/decline/timeout); 'searching' means dispatch is between offers or has no
+   * eligible driver right now. Null once the booking has left the pending/searching phase. */
+  dispatchState: 'searching' | 'driver_found' | null;
   driverDistanceKm: number;
   driverEtaMinutes: number;
   tripRemainingKm: number;
@@ -150,7 +161,7 @@ interface BookingContextType {
   /** Returns once the request has actually settled (screen moves to 'searching' on success, or
    * a toast is shown and the caller stays put on failure) — callers can await this to show a
    * loading state on the Confirm button instead of it looking unresponsive on a slow network. */
-  confirmBooking: (numberOfPassengers: number, farePerPassenger: number) => Promise<void>;
+  confirmBooking: (numberOfPassengers: number) => Promise<void>;
   /** Server-authoritative: only clears the active booking locally once the backend has actually
    * confirmed the cancellation. Resolves false (and shows a toast) if the backend call fails, so
    * the passenger is never shown "cancelled/back to Home" while the booking is still active
@@ -169,12 +180,27 @@ interface BookingContextType {
 
 const BookingContext = createContext<BookingContextType | null>(null);
 
+/**
+ * Driver's real GPS heading from the backend (booking.driver.heading_deg = the raw device heading
+ * the Driver App uploaded). Valid = a finite number in 0-360; null / undefined / -1 / anything
+ * else means "unknown" and the caller falls back to a computed bearing. Degrees, as
+ * Marker.rotation expects — never converted.
+ */
+function resolveDriverHeading(raw: unknown, fallbackBearing: number, label: string): number {
+  const n = raw === null || raw === undefined || raw === '' ? NaN : Number(raw);
+  const valid = Number.isFinite(n) && n >= 0 && n <= 360;
+  const heading = valid ? n % 360 : fallbackBearing;
+  if (__DEV__) {
+    console.log(`[passenger-driver-heading] SOURCE=${valid ? 'backend' : `bearing-fallback(${label})`} heading=${heading}`);
+  }
+  return heading;
+}
+
 const DEFAULT_PICKUP: LocationPoint = {
   name: 'Bucana, Nasugbu Batangas',
   address: 'Bridge St., Bucana',
   lat: 14.0638,
   lng: 120.6289,
-  zoneCode: 'TODA-BUCANA',
 };
 
 const DEFAULT_DROPOFF: LocationPoint = {
@@ -182,9 +208,7 @@ const DEFAULT_DROPOFF: LocationPoint = {
   address: 'J.P. Rizal St., Poblacion',
   lat: 14.0718,
   lng: 120.6325,
-  zoneCode: 'TODA-BRGY8',
 };
-
 
 const DEFAULT_DRIVER: DriverProfile = {
   id: 101,
@@ -192,10 +216,9 @@ const DEFAULT_DRIVER: DriverProfile = {
   mobile: '+63 912 345 6789',
   rating: 4.9,
   trips: 1245,
-  todaName: 'TODA Bucana',
   tricycle: {
     plateNumber: 'ABC 1234',
-    bodyNumber: '04-128',
+    codingNumber: '04-128',
     model: 'Kawasaki Barako II (Blue)',
   },
   distanceKm: 1.2,
@@ -269,7 +292,7 @@ const INITIAL_NOTIFICATIONS: NotificationItem[] = [
   },
   {
     id: 2,
-    title: 'TODA Bucana Tariff Update',
+    title: 'Municipal Fare Tariff Update',
     body: 'Municipal standard base fare ₱20.00 is active. Report any unauthorized overcharging.',
     time: '1d ago',
     read: false,
@@ -278,7 +301,7 @@ const INITIAL_NOTIFICATIONS: NotificationItem[] = [
   {
     id: 3,
     title: 'Commuter Safety Priority',
-    body: 'Always verify tricycle MTOP body number (e.g. 04-128) before boarding.',
+    body: 'Always verify the tricycle MTOP Sticker Number (e.g. 04-128) before boarding.',
     time: '3d ago',
     read: true,
     type: 'alert',
@@ -293,15 +316,16 @@ const INITIAL_RECEIPT: TripReceipt = {
   dropoff: 'Nasugbu Municipal Hall',
   distanceKm: 1.8,
   durationMinutes: 6,
-  baseFare: 20.0,
-  distanceFee: 9.0,
-  totalFare: 29.0,
+  baseFare: 25.0,
+  distanceFee: 0.0,
+  farePerPassenger: 25.0,
+  passengerCount: 1,
+  totalFare: 25.0,
   paymentMethod: 'cash',
   driverName: 'Juan Dela Cruz',
   plateNumber: 'ABC 1234',
-  bodyNumber: '04-128',
-  todaName: 'TODA Bucana',
-  mtopNumber: 'MTOP-2024-0089',
+  codingNumber: '04-128',
+  mtopNumber: '',
 };
 
 export function BookingProvider({ children }: { children: ReactNode }) {
@@ -350,13 +374,8 @@ export function BookingProvider({ children }: { children: ReactNode }) {
   const [activeDriver, setActiveDriver] = useState<DriverProfile>(DEFAULT_DRIVER);
   const [historyList, setHistoryList] = useState<HistoryItem[]>(INITIAL_HISTORY);
   const [searchCountdown, setSearchCountdown] = useState<number>(REAL_SEARCH_CYCLE_SECONDS);
-  const [searchStatusText, setSearchStatusText] = useState<string>(
-    'Broadcasting to nearby tricycles in Bucana Zone...'
-  );
-  // How many full countdown cycles the current real-mode search has gone through with no driver
-  // accepting yet — purely for the status message ("still searching"); reset each time a new
-  // search actually starts.
-  const [searchCycleCount, setSearchCycleCount] = useState<number>(1);
+  const [searchStatusText, setSearchStatusText] = useState<string>('Searching for a driver...');
+  const [dispatchState, setDispatchState] = useState<'searching' | 'driver_found' | null>(null);
   const [driverDistanceKm, setDriverDistanceKm] = useState<number>(1.2);
   const [driverEtaMinutes, setDriverEtaMinutes] = useState<number>(3);
   const [tripRemainingKm, setTripRemainingKm] = useState<number>(0);
@@ -417,22 +436,27 @@ export function BookingProvider({ children }: { children: ReactNode }) {
   // result correctly replaces the demo list with an empty one (so "No rides yet" shows for a
   // real account with no rides) — only a failed request (backend unreachable) leaves the
   // existing list alone, same offline-fallback convention used elsewhere in this app.
-  useEffect(() => {
+  //
+  // Exposed as refreshHistory so a screen displaying history can silently re-sync it on
+  // entry (one request per mount, never a poll) — valuable when the original fetch happened
+  // while the device was offline. It only ever replaces historyList with server truth; it
+  // touches no other booking state, so it can never disturb an in-progress booking.
+  const refreshHistory = useCallback(() => {
     if (BOOKING_MODE !== 'real' || !isAuthenticated || !user?.id) return;
-    let cancelled = false;
     passengerApi
       .getHistory(user.id)
       .then((res: any) => {
-        if (cancelled) return;
         const rawList = res?.bookings || res?.history || [];
         const finished = rawList.filter((b: any) => b.status === 'completed' || b.status === 'cancelled');
         setHistoryList(finished.map(mapBookingRecordToHistoryItem));
       })
       .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
   }, [isAuthenticated, user?.id]);
+
+  // Runs that same refresh once the passenger is known.
+  useEffect(() => {
+    refreshHistory();
+  }, [refreshHistory]);
 
   // Resumes an in-progress real booking after a cold start (app relaunch after being killed by
   // the OS while backgrounded, or a web tab reloaded after being reclaimed) instead of dropping
@@ -463,11 +487,19 @@ export function BookingProvider({ children }: { children: ReactNode }) {
           lat: Number(booking.dropoff_lat),
           lng: Number(booking.dropoff_lng),
         });
+        // The breakdown (base/distanceFee/perPassengerFare) is recomputed from the same shared
+        // formula, using the booking's real passenger_count, purely for display — `total` stays
+        // pinned to the backend's own fare_amount, the authoritative value.
+        const resumedDistanceKm = Number(booking.distance_km ?? 0);
+        const resumedPassengerCount = Number(booking.passenger_count ?? 1);
+        const resumedBreakdown = calculateFare(resumedDistanceKm, undefined, resumedPassengerCount);
         setFareEstimate({
-          base: 0,
-          distanceFee: Number(booking.fare_amount ?? 0),
-          total: Number(booking.fare_amount ?? 0),
-          distanceKm: Number(booking.distance_km ?? 0),
+          base: resumedBreakdown.base,
+          distanceFee: resumedBreakdown.distanceFee,
+          perPassengerFare: Number(booking.fare_per_passenger ?? resumedBreakdown.perPassengerFare),
+          passengerCount: resumedPassengerCount,
+          total: Number(booking.fare_amount ?? resumedBreakdown.total),
+          distanceKm: resumedDistanceKm,
           durationMinutes: Number(booking.estimated_duration_mins ?? 0),
         });
         setRealBookingId(booking.id);
@@ -667,23 +699,15 @@ export function BookingProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const confirmBooking = async (numberOfPassengers: number, farePerPassenger: number): Promise<void> => {
+  const confirmBooking = async (numberOfPassengers: number): Promise<void> => {
     if (BOOKING_MODE === 'simulated') {
       setScreenState('searching');
       setSearchCountdown(8);
-      setSearchStatusText('Broadcasting to nearby tricycles in Bucana Zone...');
+      setSearchStatusText('Finding nearest tricycle...');
       return;
     }
 
-    // Real mode: create the actual backend booking. screenState only moves to 'searching' once
-    // the request succeeds — a failure keeps the passenger on the confirmation screen with a
-    // real error instead of silently sliding into a fake search. matchedToda should already be
-    // the geometrically nearest zone (kept in sync by selectPickup/selectDestination), but this
-    // recomputes from pickup coordinates as a safety net rather than trusting stale state or a
-    // place's own pre-assigned zoneCode.
-    const pickupZone = matchedToda || findNearestZone(pickup, todaList);
-
-    setSearchStatusText(`Broadcasting request to tricycles in ${pickupZone?.name || 'nearest TODA'}...`);
+    setSearchStatusText('Finding nearest tricycle...');
     try {
       const res: any = await passengerApi.requestBooking({
         pickup_name: pickup.name,
@@ -693,11 +717,11 @@ export function BookingProvider({ children }: { children: ReactNode }) {
         dropoff_lat: dropoff.lat,
         dropoff_lng: dropoff.lng,
         passenger_count: numberOfPassengers,
-        fare_per_passenger: farePerPassenger,
+        // The fare is computed backend-side from distance_km alone (FareService) — never sent as
+        // a client-supplied amount, and never scaled by passenger count.
         distance_km: fareEstimate.distanceKm,
         estimated_duration_mins: fareEstimate.durationMinutes,
         payment_method: 'cash',
-        toda_zone_id: pickupZone.id,
         // Previously never sent at all — the passenger could type a note here, but it stayed
         // local-only (noteToDriver state) and the backend's already-existing passenger_notes
         // column simply never received it, so the driver had nothing to see regardless of what
@@ -705,11 +729,23 @@ export function BookingProvider({ children }: { children: ReactNode }) {
         passenger_notes: noteToDriver.trim() || undefined,
       });
       setRealBookingId(res.booking.id);
+      // The backend recomputes the fare from distance_km + passenger_count independently
+      // (FareService) — this is normally identical to the local preview, but the backend's
+      // numbers are what's actually confirmed/billed, so they replace the preview here rather
+      // than trusting the client's own calculation for anything downstream of confirmation.
+      if (res.booking.fare_amount != null) {
+        setFareEstimate((prev) => ({
+          ...prev,
+          perPassengerFare: Number(res.booking.fare_per_passenger ?? prev.perPassengerFare),
+          passengerCount: Number(res.booking.passenger_count ?? prev.passengerCount),
+          total: Number(res.booking.fare_amount),
+        }));
+      }
       // Reset the display countdown fresh every time a search actually starts — otherwise a
       // search cancelled partway through (e.g. at 6s) would leave a stale low value that the
       // next search inherits instead of starting from the top.
       setSearchCountdown(REAL_SEARCH_CYCLE_SECONDS);
-      setSearchCycleCount(1);
+      setDispatchState('searching');
       setScreenState('searching');
     } catch (err: any) {
       showToast(err?.message || 'Could not create your booking. Please try again.', 'info');
@@ -730,6 +766,7 @@ export function BookingProvider({ children }: { children: ReactNode }) {
       }
       setRealBookingId(null);
     }
+    setDispatchState(null);
     setScreenState('home');
     return true;
   };
@@ -785,13 +822,17 @@ export function BookingProvider({ children }: { children: ReactNode }) {
       durationMinutes: fareEstimate.durationMinutes,
       baseFare: fareEstimate.base,
       distanceFee: fareEstimate.distanceFee,
+      farePerPassenger: fareEstimate.perPassengerFare,
+      passengerCount: fareEstimate.passengerCount,
       totalFare: fareEstimate.total,
       paymentMethod,
       driverName: activeDriver.name,
       plateNumber: activeDriver.tricycle.plateNumber,
-      bodyNumber: activeDriver.tricycle.bodyNumber,
-      todaName: activeDriver.todaName || 'TODA Bucana',
-      mtopNumber: 'MTOP-2024-0412',
+      codingNumber: activeDriver.tricycle.codingNumber,
+      // No OR/MTOP number is exposed on the active-driver payload, so this stays empty
+      // rather than printing an invented MTOP-* string on a real receipt — same rule the
+      // API-backed path above uses (booking.tricycle?.or_number || '').
+      mtopNumber: '',
     };
 
     setLatestReceipt(newReceipt);
@@ -828,13 +869,7 @@ export function BookingProvider({ children }: { children: ReactNode }) {
   };
 
   // Driver-matching countdown: single source shared by SearchingDriversScreen
-  // so it doesn't need its own local setInterval. Simulated mode counts down to exactly 0 once
-  // (the effect below reacts to that to fabricate an arrival). Real mode has no single driver to
-  // time out — the backend already broadcasts the pending booking to every eligible driver in
-  // the zone and keeps it open to all of them — so instead of freezing at 00:00 once it reaches
-  // zero, it loops back to a fresh cycle and keeps counting, for as long as the passenger keeps
-  // waiting (a real acceptance is detected separately by the active-booking poll, and cancelling
-  // navigates away from this screen entirely).
+  // so it doesn't need its own local setInterval.
   useEffect(() => {
     if (screenState !== 'searching') return;
     if (BOOKING_MODE !== 'real' && searchCountdown <= 0) return;
@@ -842,7 +877,6 @@ export function BookingProvider({ children }: { children: ReactNode }) {
       setSearchCountdown((prev) => {
         if (prev > 1) return prev - 1;
         if (BOOKING_MODE === 'real') {
-          setSearchCycleCount((c) => c + 1);
           return REAL_SEARCH_CYCLE_SECONDS;
         }
         return 0;
@@ -852,15 +886,12 @@ export function BookingProvider({ children }: { children: ReactNode }) {
   }, [screenState, searchCountdown]);
 
   // Status copy tracks the same countdown thresholds the screen used to
-  // compute locally: broadcasting -> matched -> accepted. Simulation-only — in real mode this
-  // text is set from actual booking state instead (see confirmBooking / the active-booking poll).
+  // compute locally: searching -> matched -> accepted. Simulation-only.
   useEffect(() => {
     if (BOOKING_MODE !== 'simulated') return;
     if (screenState !== 'searching') return;
     if (searchCountdown > 5) {
-      setSearchStatusText(
-        `Broadcasting request to tricycles in ${matchedToda?.name || 'Bucana Zone'}...`
-      );
+      setSearchStatusText('Finding nearest tricycle...');
     } else if (searchCountdown > 2) {
       setSearchStatusText(`Driver found nearby! Confirming dispatch with ${activeDriver.name}...`);
     } else {
@@ -868,18 +899,7 @@ export function BookingProvider({ children }: { children: ReactNode }) {
         `Driver ${activeDriver.name} (${activeDriver.tricycle.plateNumber}) accepted your ride!`
       );
     }
-  }, [screenState, searchCountdown, matchedToda, activeDriver]);
-
-  // Real mode: once the first cycle completes with no acceptance yet, make it visible to the
-  // passenger that the app is still actively broadcasting to nearby TODA drivers rather than
-  // having silently stalled — this is what fires each time the countdown loops.
-  useEffect(() => {
-    if (BOOKING_MODE !== 'real') return;
-    if (screenState !== 'searching' || searchCycleCount <= 1) return;
-    setSearchStatusText(
-      `Still searching — broadcasting to more tricycles in ${matchedToda?.name || 'Bucana Zone'}...`
-    );
-  }, [searchCycleCount, screenState, matchedToda]);
+  }, [screenState, searchCountdown, activeDriver]);
 
   // Once a driver is matched, auto-advance into the en-route state. Simulation-only — in real
   // mode, "no driver accepted yet" must never fabricate one; the passenger just keeps searching
@@ -984,8 +1004,24 @@ export function BookingProvider({ children }: { children: ReactNode }) {
         if (booking.status === 'cancelled') {
           showToast('Your ride was cancelled.', 'info');
           setRealBookingId(null);
+          setDispatchState(null);
           setScreenState('home');
           return;
+        }
+
+        // Backend-authoritative dispatch phase — drives the "Driver Found / Waiting for
+        // acceptance" vs "Searching for a driver..." label directly from server state, never
+        // from a local timer (see `dispatch_state` on the Booking model).
+        if (booking.status === 'pending') {
+          if (booking.dispatch_state === 'driver_found') {
+            setDispatchState('driver_found');
+            setSearchStatusText('Waiting for acceptance...');
+          } else {
+            setDispatchState('searching');
+            setSearchStatusText('Searching for a driver...');
+          }
+        } else {
+          setDispatchState(null);
         }
 
         const driverProfile = mapBookingDriverToProfile(booking);
@@ -1022,7 +1058,11 @@ export function BookingProvider({ children }: { children: ReactNode }) {
           // The driver's REAL backend position — never the passenger's own location, never
           // pickup, never a synthesized/simulated point.
           const driverPos = { lat: Number(booking.driver.current_lat), lng: Number(booking.driver.current_lng) };
-          const heading = bearingDegrees(driverPos, { lat: pickup.lat, lng: pickup.lng });
+          const heading = resolveDriverHeading(
+            (booking.driver as any)?.heading_deg,
+            bearingDegrees(driverPos, { lat: pickup.lat, lng: pickup.lng }),
+            'driver->pickup'
+          );
           setLiveDriverLocation({ ...driverPos, heading });
 
           // Refetch the real road route only once the driver has moved meaningfully from where
@@ -1053,7 +1093,11 @@ export function BookingProvider({ children }: { children: ReactNode }) {
           // route, then toward the destination once in transit, instead of freezing wherever it
           // was when the ride started.
           const driverPos = { lat: Number(booking.driver.current_lat), lng: Number(booking.driver.current_lng) };
-          const heading = bearingDegrees(driverPos, { lat: dropoff.lat, lng: dropoff.lng });
+          const heading = resolveDriverHeading(
+            (booking.driver as any)?.heading_deg,
+            bearingDegrees(driverPos, { lat: dropoff.lat, lng: dropoff.lng }),
+            'driver->dropoff'
+          );
           setLiveDriverLocation({ ...driverPos, heading });
 
           const lastOrigin = dropoffRouteOriginRef.current;
@@ -1100,11 +1144,13 @@ export function BookingProvider({ children }: { children: ReactNode }) {
             durationMinutes: fareEstimate.durationMinutes,
             baseFare: fareEstimate.base,
             distanceFee: fareEstimate.distanceFee,
+            farePerPassenger: Number(booking.fare_per_passenger ?? fareEstimate.perPassengerFare),
+            passengerCount: Number(booking.passenger_count ?? fareEstimate.passengerCount),
             totalFare: Number(booking.fare_amount ?? fareEstimate.total),
             paymentMethod: 'cash',
             driverName: driverProfile?.name || activeDriver.name,
             plateNumber: driverProfile?.tricycle.plateNumber || activeDriver.tricycle.plateNumber,
-            bodyNumber: driverProfile?.tricycle.bodyNumber || activeDriver.tricycle.bodyNumber,
+            codingNumber: driverProfile?.tricycle.codingNumber || activeDriver.tricycle.codingNumber,
             todaName: driverProfile?.todaName || activeDriver.todaName || 'TODA Bucana',
             mtopNumber: booking.tricycle?.or_number || '',
           };
@@ -1119,6 +1165,7 @@ export function BookingProvider({ children }: { children: ReactNode }) {
             fare: receipt.totalFare,
             distanceKm: receipt.distanceKm,
             durationMinutes: receipt.durationMinutes,
+            passengerCount: receipt.passengerCount,
             status: 'Completed',
             driverName: receipt.driverName,
             plateNumber: receipt.plateNumber,
@@ -1225,9 +1272,11 @@ export function BookingProvider({ children }: { children: ReactNode }) {
         setNoteToDriver,
         activeDriver,
         historyList,
+        refreshHistory,
         addHistoryItem,
         searchCountdown,
         searchStatusText,
+        dispatchState,
         driverDistanceKm,
         driverEtaMinutes,
         tripRemainingKm,

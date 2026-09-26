@@ -34,42 +34,39 @@ function isValidCoordinate(lat: unknown, lng: unknown): lat is number {
  * "nearby" one is found. Zones with missing/non-finite/out-of-range coordinates are excluded
  * entirely, not just deprioritized — never zoneCode, never route geometry, never array order.
  */
-export function findNearestZone(point: RouteCoordinate, zones: TodaZone[]): TodaZone {
-  const candidates = zones.filter((z) => isValidCoordinate(z.centerLat, z.centerLng));
+const DEFAULT_ZONE: TodaZone = {
+  id: 0,
+  code: 'GENERAL',
+  name: 'General Tricycle Service',
+  terminal: 'Nasugbu',
+  badgeColor: '#2563EB',
+  centerLat: 14.0718,
+  centerLng: 120.6325,
+  coverageKm: 10,
+  baseFare: 25,
+  perKmRate: 5,
+};
+
+export function findNearestZone(point: RouteCoordinate, zones: TodaZone[] = []): TodaZone {
+  const candidates = (zones || []).filter((z) => isValidCoordinate(z?.centerLat, z?.centerLng));
 
   if (candidates.length === 0) {
-    if (__DEV__) {
-      console.warn(
-        '[findNearestZone] no TODA in the list has valid coordinates — returning the first entry as a last resort.'
-      );
-    }
-    return zones[0];
+    return DEFAULT_ZONE;
   }
 
   let nearest = candidates[0];
-  let minDistanceKm = haversineKm(point, { lat: nearest.centerLat, lng: nearest.centerLng });
-  const distances: { code: string; km: number }[] = [{ code: nearest.code, km: minDistanceKm }];
+  let minDistanceKm = haversineKm(point, { lat: nearest.centerLat!, lng: nearest.centerLng! });
 
   for (let i = 1; i < candidates.length; i++) {
     const zone = candidates[i];
-    const distanceKm = haversineKm(point, { lat: zone.centerLat, lng: zone.centerLng });
-    distances.push({ code: zone.code, km: distanceKm });
+    const distanceKm = haversineKm(point, { lat: zone.centerLat!, lng: zone.centerLng! });
     if (distanceKm < minDistanceKm) {
       minDistanceKm = distanceKm;
       nearest = zone;
     }
   }
 
-  if (__DEV__) {
-    const sorted = [...distances].sort((a, b) => a.km - b.km);
-    console.log(
-      `[findNearestZone] pickup (${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}) -> ` +
-        sorted.map((d) => `${d.code}: ${d.km.toFixed(3)}km`).join(', ') +
-        ` -> selected ${nearest.code}`
-    );
-  }
-
-  return nearest;
+  return nearest || DEFAULT_ZONE;
 }
 
 export function bearingDegrees(a: RouteCoordinate, b: RouteCoordinate): number {

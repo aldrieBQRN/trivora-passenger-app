@@ -98,14 +98,38 @@ export default function TripReceiptModal({
               </View>
             </View>
 
-            {/* Fare Breakdown */}
+            {/* Fare Breakdown — base fare covers the first 4 km: ₱50 flat for 1 passenger, or ₱25
+                per passenger for 2+. Every km beyond 4 adds ₱5 per passenger, billed continuously.
+                The additional-distance line only appears when the trip actually went past 4 km,
+                and the passenger-count line only when more than one rider was on the fare. */}
             <View style={styles.sectionCard}>
               <Text style={styles.sectionTitle}>Fare Computation</Text>
 
               <View style={styles.fareRow}>
-                <Text style={styles.fareLabel}>Distance Fee ({receipt.distanceKm} km x ₱5.00)</Text>
-                <Text style={styles.fareValue}>₱{receipt.distanceFee.toFixed(2)}</Text>
+                <Text style={styles.fareLabel}>
+                  {receipt.passengerCount === 1 ? 'Base fare (up to 4 km)' : 'Base fare (up to 4 km, per passenger)'}
+                </Text>
+                <Text style={styles.fareValue}>₱{receipt.baseFare.toFixed(2)}</Text>
               </View>
+
+              {receipt.distanceKm > 4 && (
+                <View style={styles.fareRow}>
+                  <Text style={styles.fareLabel}>Additional distance (₱5.00/km, per passenger)</Text>
+                  <Text style={styles.fareValue}>₱{receipt.distanceFee.toFixed(2)}</Text>
+                </View>
+              )}
+
+              <View style={styles.fareRow}>
+                <Text style={styles.fareLabel}>Fare per passenger</Text>
+                <Text style={styles.fareValue}>₱{receipt.farePerPassenger.toFixed(2)}</Text>
+              </View>
+
+              {receipt.passengerCount > 1 && (
+                <View style={styles.fareRow}>
+                  <Text style={styles.fareLabel}>Passengers</Text>
+                  <Text style={styles.fareValue}>× {receipt.passengerCount}</Text>
+                </View>
+              )}
 
               <View style={styles.divider} />
 
@@ -131,8 +155,8 @@ export default function TripReceiptModal({
                 </View>
 
                 <View style={styles.gridItem}>
-                  <Text style={styles.gridLabel}>TODA Zone</Text>
-                  <Text style={styles.gridVal}>{receipt.todaName}</Text>
+                  <Text style={styles.gridLabel}>Sticker Number</Text>
+                  <Text style={styles.gridVal}>{receipt.codingNumber || '—'}</Text>
                 </View>
 
                 <View style={styles.gridItem}>

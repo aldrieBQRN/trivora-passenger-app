@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { LocationPoint, TodaZone } from '../types';
-import { TODA_ZONES, calculateFare } from '../constants/todaRoutes';
+import { calculateFare } from '../constants/todaRoutes';
+import { useCurrentLocation } from './useCurrentLocation';
 import { fetchRoute, reverseGeocode, RouteCoordinate, RouteSource } from '../services/routingService';
-import { fetchTodaZones } from '../services/api';
-import { findNearestZone } from '../utils/routeInterpolation';
 
 interface UsePinLocationResult {
   pinnedLocation: LocationPoint;
@@ -17,47 +16,43 @@ interface UsePinLocationResult {
   pickPoint: (point: RouteCoordinate) => void;
   pickToda: (zone: TodaZone) => void;
   todaList: TodaZone[];
+  /** Pin Pickup Location only: true until the device's real position is known — the caller shows
+   * a pending view instead of a map, so no default coordinate is ever displayed. */
+  awaitingLocation: boolean;
+  isLocating: boolean;
+  locationError: string | null;
+  retryLocation: () => void;
 }
 
 const PICK_DEBOUNCE_MS = 350;
+const NASUGBU_CENTER = { lat: 14.0718, lng: 120.6325 };
 
-/**
- * Shared pin-drop state/logic for PinLocationModal's native and web bodies: tracks the pinned
- * point and resolves it to a real address (Nominatim), debounced so rapid re-tapping doesn't
- * spam the service. `currentPickup` is optional — pure destination selection (Add Place, a
- * standalone Pin Location flow) has no pickup reference at all, in which case no route/fare is
- * computed and the map simply won't render a pickup marker or route line. When a real pickup IS
- * given (picking a destination mid-booking), a route+fare are still resolved so the map can draw
- * the connecting line, but that's ambient context — no fare/ETA/zone text belongs in this picker;
- * that summary lives on the booking screens that actually own the booking flow.
- */
-export function usePinLocation(currentPickup?: LocationPoint, initialLocation?: LocationPoint): UsePinLocationResult {
-  const [todaList, setTodaList] = useState<TodaZone[]>(TODA_ZONES);
-
-  // Nearest by actual distance to whichever real coordinate we have (initialLocation, else
-  // currentPickup) — never a pre-assigned zoneCode string, which can be stale or simply wrong
-  // (the same class of bug already fixed in BookingContext's own pickup matching).
-  const initialPoint = initialLocation || currentPickup;
-  const initialZone = initialPoint
-    ? findNearestZone(initialPoint, todaList)
-    : todaList[0] || TODA_ZONES[0];
-
-  const initialAddress = initialZone.address || (initialZone.barangay ? `${initialZone.barangay}, Nasugbu, Batangas` : 'Nasugbu, Batangas');
+export function usePinLocation(
+  currentPickup?: LocationPoint,
+  initialLocation?: LocationPoint,
+  mode: 'pickup' | 'destination' = 'destination'
+): UsePinLocationResult {
+  // Pin Pickup Location with no explicit start: the pin must begin at the user's CURRENT location
+  // (via the existing useCurrentLocation hook) — not at the destination the modal was handed as
+  // its "other endpoint", and not at a default city coordinate.
+  const isPickupStart = mode === 'pickup' && !initialLocation;
+  const { isLocating, error: locationError, requestCurrentLocation } = useCurrentLocation();
+  const [hasFix, setHasFix] = useState(!isPickupStart);
 
   const [pinnedLocation, setPinnedLocation] = useState<LocationPoint>(
-    initialLocation || {
-      name: initialZone.name,
-      todaName: initialZone.name,
-      terminalName: initialZone.terminal_name || initialZone.terminal || '',
-      barangay: initialZone.barangay,
-      address: initialAddress,
-      lat: currentPickup?.lat ?? initialZone.centerLat,
-      lng: currentPickup?.lng ?? initialZone.centerLng,
-      zoneCode: initialZone.code,
-      category: 'TODA Terminal',
+    initialLocation ||
+      (isPickupStart
+        ? // Placeholder only — never rendered: the caller shows a pending view until hasFix.
+          { name: 'Locating…', address: 'Locating…', lat: 0, lng: 0, category: 'Pinned' }
+        : null) || {
+      name: 'Pinned Location',
+      address: 'Nasugbu, Batangas',
+      lat: currentPickup?.lat ?? NASUGBU_CENTER.lat,
+      lng: currentPickup?.lng ?? NASUGBU_CENTER.lng,
+      category: 'Pinned',
     }
   );
-  const [matchedZone, setMatchedZone] = useState<TodaZone>(initialZone);
+
   const [routeCoordinates, setRouteCoordinates] = useState<RouteCoordinate[]>([]);
   const [routeSource, setRouteSource] = useState<RouteSource>('fallback');
   const [distanceKm, setDistanceKm] = useState<number>(0.8);
@@ -65,38 +60,19 @@ export function usePinLocation(currentPickup?: LocationPoint, initialLocation?: 
   const [isResolving, setIsResolving] = useState(false);
 
   const requestIdRef = useRef(0);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    fetchTodaZones().then((zones) => {
-      if (zones && zones.length > 0) {
-        setTodaList(zones);
-        if (!initialLocation) {
-          // Same fix as initialZone above — match by real distance now that the live list has
-          // loaded, not by a stale zoneCode string.
-          const match = currentPickup ? findNearestZone(currentPickup, zones) : zones[0];
-          setMatchedZone(match);
-          setPinnedLocation({
-            name: match.name,
-            todaName: match.name,
-            terminalName: match.terminal_name || match.terminal || '',
-            barangay: match.barangay,
-            address: match.address || (match.barangay ? `${match.barangay}, Nasugbu, Batangas` : 'Nasugbu, Batangas'),
-            lat: currentPickup?.lat ?? match.centerLat,
-            lng: currentPickup?.lng ?? match.centerLng,
-            zoneCode: match.code,
-            category: 'TODA Terminal',
-          });
-        }
-      }
-    });
-  }, [initialLocation, currentPickup?.lat, currentPickup?.lng]);
+  // `currentPickup` is really "the other, unchanged endpoint". In destination mode that's the
+  // pickup, so the route runs it -> pinned. In pickup mode it's the destination, so the route must
+  // run pinned -> it (pickup first, destination last) — never reversed.
+  const routeBetween = (other: RouteCoordinate, pinned: RouteCoordinate) =>
+    mode === 'pickup' ? fetchRoute(pinned, other) : fetchRoute(other, pinned);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Populate an initial real route for the starting pin, once — only when there's an actual
   // pickup to route from.
   useEffect(() => {
-    if (!currentPickup) return;
-    fetchRoute(
+    if (!currentPickup || isPickupStart) return;
+    routeBetween(
       { lat: currentPickup.lat, lng: currentPickup.lng },
       { lat: pinnedLocation.lat, lng: pinnedLocation.lng }
     ).then((route) => {
@@ -108,61 +84,57 @@ export function usePinLocation(currentPickup?: LocationPoint, initialLocation?: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const pickToda = useCallback(
-    (zone: TodaZone) => {
-      setMatchedZone(zone);
-      setIsResolving(false);
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-
-      const todaName = zone.name;
-      const terminalName = zone.terminal_name || zone.terminal || '';
-      const address = zone.address || (zone.barangay ? `${zone.barangay}, Nasugbu, Batangas` : 'Nasugbu, Batangas');
-
+  // Resolves the real device position (recent cache if valid, else a fresh fix — see
+  // useCurrentLocation), makes it the pickup pin, and — if a destination already exists — routes
+  // pickup -> destination through the existing fetchRoute. Null (permission denied / no GPS)
+  // leaves awaitingLocation true so the user sees the existing permission/error state.
+  const applyCurrentLocation = useCallback(() => {
+    requestCurrentLocation().then((coords) => {
+      if (!coords) return;
       setPinnedLocation({
-        name: todaName,
-        todaName: todaName,
-        terminalName: terminalName,
-        barangay: zone.barangay,
-        address: address,
-        lat: zone.centerLat,
-        lng: zone.centerLng,
-        zoneCode: zone.code,
-        category: 'TODA Terminal',
+        name: 'Current Location',
+        address: `Lat ${coords.lat.toFixed(4)}, Lng ${coords.lng.toFixed(4)}`,
+        lat: coords.lat,
+        lng: coords.lng,
+        category: 'Pinned',
       });
-
+      setHasFix(true);
+      reverseGeocode(coords).then((geo) => {
+        setPinnedLocation((prev) =>
+          prev.lat === coords.lat && prev.lng === coords.lng
+            ? { ...prev, name: geo.address || prev.name, barangay: geo.barangay, address: geo.address || prev.address }
+            : prev
+        );
+      });
       if (currentPickup) {
-        fetchRoute(
-          { lat: currentPickup.lat, lng: currentPickup.lng },
-          { lat: zone.centerLat, lng: zone.centerLng }
-        ).then((route) => {
+        routeBetween({ lat: currentPickup.lat, lng: currentPickup.lng }, coords).then((route) => {
           setRouteCoordinates(route.coordinates);
           setRouteSource(route.source);
           setDistanceKm(route.distanceKm);
           setDurationMinutes(route.durationMinutes);
         });
       }
-    },
-    [currentPickup?.lat, currentPickup?.lng]
-  );
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestCurrentLocation, currentPickup?.lat, currentPickup?.lng, mode]);
+
+  useEffect(() => {
+    if (isPickupStart) applyCurrentLocation();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const pickToda = useCallback((_zone: TodaZone) => {}, []);
 
   const pickPoint = useCallback(
     (point: RouteCoordinate) => {
-      const zone = findNearestZone(point, todaList);
-      setMatchedZone(zone);
       setIsResolving(true);
 
-      const todaName = zone.name;
-
-      // Optimistic placeholder while both network calls are in flight.
+      // Optimistic placeholder while network calls are in flight
       setPinnedLocation({
-        name: todaName,
-        todaName: todaName,
-        terminalName: '',
-        barangay: zone.barangay,
+        name: 'Pinned Location',
         address: `Lat ${point.lat.toFixed(4)}, Lng ${point.lng.toFixed(4)}`,
         lat: point.lat,
         lng: point.lng,
-        zoneCode: zone.code,
         category: 'Pinned',
       });
 
@@ -173,20 +145,17 @@ export function usePinLocation(currentPickup?: LocationPoint, initialLocation?: 
         const [geocode, route] = await Promise.all([
           reverseGeocode(point),
           currentPickup
-            ? fetchRoute({ lat: currentPickup.lat, lng: currentPickup.lng }, point)
+            ? routeBetween({ lat: currentPickup.lat, lng: currentPickup.lng }, point)
             : Promise.resolve(null),
         ]);
         if (requestId !== requestIdRef.current) return;
 
         setPinnedLocation({
-          name: todaName,
-          todaName: todaName,
-          terminalName: '',
-          barangay: geocode.barangay || zone.barangay,
+          name: geocode.address || 'Pinned Location',
+          barangay: geocode.barangay,
           address: geocode.address,
           lat: point.lat,
           lng: point.lng,
-          zoneCode: zone.code,
           category: 'Pinned',
         });
         if (route) {
@@ -198,14 +167,27 @@ export function usePinLocation(currentPickup?: LocationPoint, initialLocation?: 
         setIsResolving(false);
       }, PICK_DEBOUNCE_MS);
     },
-    [currentPickup?.lat, currentPickup?.lng, todaList]
+    [currentPickup?.lat, currentPickup?.lng, mode]
   );
 
-  const fareTotal = calculateFare(distanceKm, matchedZone).total;
+  const fareTotal = calculateFare(distanceKm).total;
+
+  const dummyZone: TodaZone = {
+    id: 1,
+    code: 'GENERAL',
+    name: 'General Service',
+    terminal: 'Nasugbu',
+    badgeColor: '#2563EB',
+    centerLat: NASUGBU_CENTER.lat,
+    centerLng: NASUGBU_CENTER.lng,
+    coverageKm: 5,
+    baseFare: 25,
+    perKmRate: 5,
+  };
 
   return {
     pinnedLocation,
-    matchedZone,
+    matchedZone: dummyZone,
     routeCoordinates,
     routeSource,
     distanceKm,
@@ -214,6 +196,10 @@ export function usePinLocation(currentPickup?: LocationPoint, initialLocation?: 
     isResolving,
     pickPoint,
     pickToda,
-    todaList,
+    todaList: [],
+    awaitingLocation: !hasFix,
+    isLocating,
+    locationError,
+    retryLocation: applyCurrentLocation,
   };
 }

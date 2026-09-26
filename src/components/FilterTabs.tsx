@@ -16,7 +16,7 @@ interface FilterTabsProps {
 /**
  * One segmented-tab filter for every list/period switcher — ported from the Driver app's
  * Earnings screen period-tab design (a bordered track holding flex-equal tabs, the active one
- * filled solid), so Ride History and Reports & Concerns draw their filter/tab control the same
+ * filled solid), so Ride History draws its filter/tab control the same
  * way as each other and as the Driver app, instead of each screen inventing its own pill style.
  *
  * The outer padding is baked in here (not left to each screen) so every screen gets identical

@@ -12,12 +12,11 @@ import {
   Platform,
   Alert,
 } from 'react-native';
-import { COLORS, RADIUS, SHADOWS, SPACING, BUTTONS, TYPOGRAPHY } from '../constants/theme';
+import { COLORS, RADIUS, SPACING, BUTTONS, TYPOGRAPHY } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { useNetwork } from '../context/NetworkContext';
 import { UserProfile } from '../types';
 import { User, Mail, Lock, Eye, EyeOff, Check } from 'lucide-react-native';
-import { GoogleIcon } from '../components/icons';
 import { passengerApi, mapAuthResponseToUserProfile, getApiBaseUrl } from '../services/api';
 import Button from '../components/Button';
 import LegalDocumentModal from '../components/LegalDocumentModal';
@@ -202,13 +201,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
     })();
   };
 
-  const handleSocialLogin = () => {
-    if (loading) return;
-    runAuth(DEMO_PASSENGER);
-  };
-
-  return (
-    <Animated.View style={[styles.safeArea, { opacity: fade }]}>
+  return (    <Animated.View style={[styles.safeArea, { opacity: fade }]}>
       <KeyboardAvoidingView
         style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -430,26 +423,6 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
             />
           </View>
 
-          {/* Divider */}
-          <View style={styles.dividerRow}>
-            <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>or</Text>
-            <View style={styles.dividerLine} />
-          </View>
-
-          {/* Social Login */}
-          <View style={styles.socialGroup}>
-            <TouchableOpacity
-              style={[styles.socialButton, loading && styles.socialButtonDisabled]}
-              onPress={handleSocialLogin}
-              activeOpacity={0.75}
-              disabled={loading}
-            >
-              <GoogleIcon size={20} />
-              <Text style={styles.socialButtonText}>Continue with Google</Text>
-            </TouchableOpacity>
-          </View>
-
           {/* Register Toggle Footer */}
           <View style={styles.footerRow}>
             <Text style={styles.footerText}>
@@ -653,50 +626,11 @@ const styles = StyleSheet.create({
   ctaSpacing: {
     marginTop: SPACING.sm,
   },
-  dividerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: SPACING.lg,
-    gap: 12,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: COLORS.border,
-  },
-  dividerText: {
-    color: COLORS.textMuted,
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  socialGroup: {
-    gap: 10,
-    marginBottom: SPACING.xl,
-  },
-  socialButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: COLORS.background,
-    height: BUTTONS.touchHeight,
-    borderRadius: RADIUS.md,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    gap: 10,
-    ...SHADOWS.sm,
-  },
-  socialButtonDisabled: {
-    opacity: 0.5,
-  },
-  socialButtonText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: COLORS.textPrimary,
-  },
   footerRow: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
+    marginTop: SPACING.lg,
   },
   footerText: {
     fontSize: 13,

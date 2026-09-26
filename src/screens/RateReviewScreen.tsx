@@ -55,7 +55,7 @@ export default function RateReviewScreen() {
     if (isSubmitting) return;
     setIsSubmitting(true);
     finishReview();
-    showToast('Thanks for your feedback — it helps keep TODA operators accountable.');
+    showToast('Thanks for your feedback — it helps keep drivers accountable.');
   };
 
   return (
@@ -80,7 +80,7 @@ export default function RateReviewScreen() {
             <View style={styles.driverMetaCol}>
               <Text style={styles.driverName}>{activeDriver.name}</Text>
               <Text style={styles.driverSub}>
-                {activeDriver.todaName} • {activeDriver.tricycle.plateNumber}
+                {activeDriver.tricycle.model || 'Tricycle'} • {activeDriver.tricycle.plateNumber}
               </Text>
             </View>
           </View>

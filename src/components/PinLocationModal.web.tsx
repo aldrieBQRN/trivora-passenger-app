@@ -6,7 +6,7 @@ import 'leaflet/dist/leaflet.css';
 import { LocationPoint } from '../types';
 import { usePinLocation } from '../hooks/usePinLocation';
 import PinLocationSheet from './PinLocationSheet';
-import { TODA_ZONES } from '../constants/todaRoutes';
+import PinLocationPending from './PinLocationPending';
 import { makeDivIcon, PICKUP_ICON_HTML, DROPOFF_ICON_HTML } from './TrivoraMap.web';
 
 const TILE_URL = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=cb1_3qo7_1_ac41fdc9883213d666d06544';
@@ -48,7 +48,7 @@ function MapController({ target, recenterSignal }: { target: { lat: number; lng:
   return null;
 }
 
-export default function PinLocationModal({
+function PinLocationModalContent({
   visible,
   onClose,
   onConfirmPin,
@@ -58,9 +58,20 @@ export default function PinLocationModal({
   confirmLabel,
 }: PinLocationModalProps) {
   const [recenterSignal, setRecenterSignal] = useState(0);
-  const { pinnedLocation, routeCoordinates, routeSource, isResolving, pickPoint, pickToda, todaList } = usePinLocation(
+  const {
+    pinnedLocation,
+    routeCoordinates,
+    routeSource,
+    isResolving,
+    pickPoint,
+    awaitingLocation,
+    isLocating,
+    locationError,
+    retryLocation,
+  } = usePinLocation(
     currentPickup,
-    initialLocation
+    initialLocation,
+    mode
   );
 
   // currentPickup is really just "the other, unchanged endpoint" — in pickup mode that's
@@ -75,44 +86,15 @@ export default function PinLocationModal({
     () => makeDivIcon(mode === 'pickup' ? PICKUP_ICON_HTML : DROPOFF_ICON_HTML, mode === 'pickup' ? 22 : 30, true),
     [mode]
   );
-  const todaMarkerIcon = useMemo(
-    () =>
-      L.divIcon({
-        className: 'toda-pin-marker',
-        html: `
-          <div style="cursor: pointer; filter: drop-shadow(0 2px 5px rgba(0,0,0,0.3)); display: flex; flex-direction: column; align-items: center;">
-            <div style="
-              background: #1D2542;
-              width: 26px;
-              height: 26px;
-              border-radius: 50% 50% 50% 0;
-              transform: rotate(-45deg);
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              border: 2px solid #FFFFFF;
-            ">
-              <div style="transform: rotate(45deg); display: flex; align-items: center; justify-content: center;">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/>
-                  <circle cx="12" cy="10" r="3"/>
-                </svg>
-              </div>
-            </div>
-          </div>
-        `,
-        iconSize: [26, 26],
-        iconAnchor: [13, 26],
-      }),
-    []
-  );
 
   const polylinePositions = useMemo<[number, number][]>(
     () => routeCoordinates.map((c) => [c.lat, c.lng]),
     [routeCoordinates]
   );
 
-  if (!visible) return null;
+  if (awaitingLocation) {
+    return <PinLocationPending isLocating={isLocating} error={locationError} onRetry={retryLocation} onClose={onClose} />;
+  }
 
   return (
     <PinLocationSheet
@@ -136,22 +118,6 @@ export default function PinLocationModal({
         <TileLayer url={TILE_URL} attribution={TILE_ATTRIBUTION} />
         <ClickHandler onPick={pickPoint} />
         <MapController target={pinnedLocation} recenterSignal={recenterSignal} />
-
-        {/* TODA Terminal Markers */}
-        {(todaList || TODA_ZONES).map((zone) => (
-          <Marker
-            key={zone.code}
-            position={[zone.centerLat, zone.centerLng]}
-            icon={todaMarkerIcon}
-            eventHandlers={{
-              click: (e) => {
-                L.DomEvent.stopPropagation(e);
-                pickToda(zone);
-                setRecenterSignal((n) => n + 1);
-              },
-            }}
-          />
-        ))}
 
         {currentPickup && <Marker position={[currentPickup.lat, currentPickup.lng]} icon={referenceIcon} />}
         <Marker
@@ -186,3 +152,10 @@ const styles = StyleSheet.create({
     width: '100%',
   },
 });
+
+/** Mounts the content only while open, so each opening starts fresh — in particular Pin Pickup
+ * Location re-acquires the user's current position every time it is opened. */
+export default function PinLocationModal(props: PinLocationModalProps) {
+  if (!props.visible) return null;
+  return <PinLocationModalContent {...props} />;
+}
