@@ -583,7 +583,7 @@ const styles = StyleSheet.create({
   },
   presetChipText: {
     ...TYPOGRAPHY.caption,
-    fontWeight: '800',
+    fontWeight: '700',
     color: COLORS.primary,
   },
   presetChipTextSelected: {
@@ -613,7 +613,7 @@ const styles = StyleSheet.create({
   changeLocationText: {
     ...TYPOGRAPHY.caption,
     color: COLORS.primary,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   deleteLink: {
     flexDirection: 'row',
@@ -626,6 +626,6 @@ const styles = StyleSheet.create({
   deleteLinkText: {
     ...TYPOGRAPHY.caption,
     color: COLORS.dangerDark,
-    fontWeight: '800',
+    fontWeight: '700',
   },
 });

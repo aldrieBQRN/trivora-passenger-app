@@ -196,11 +196,11 @@ const styles = StyleSheet.create({
     marginRight: 6,
   },
   itemTitleUnread: {
-    fontWeight: '900',
+    fontWeight: '700',
     color: COLORS.primary,
   },
   itemTime: {
-    fontSize: 10,
+    fontSize: 11,
     color: COLORS.textSecondary,
     fontWeight: '500',
   },
@@ -227,7 +227,7 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     fontSize: 15,
-    fontWeight: '800',
+    fontWeight: '700',
     color: COLORS.textPrimary,
   },
   emptySub: {

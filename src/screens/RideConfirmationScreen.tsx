@@ -11,6 +11,10 @@ import Button from '../components/Button';
 import RouteSummaryStrip from '../components/RouteSummaryStrip';
 
 const MAP_STRIP_HEIGHT = 200;
+/** Floating back button over the map strip (top offset + size) — its bottom edge is passed to the
+ * map as topInset so the trip fit keeps both pins below it. */
+const BACK_BUTTON_TOP = 10;
+const BACK_BUTTON_SIZE = 38;
 
 const PASSENGER_COUNT_PATTERN = /^[1-9]\d*$/;
 
@@ -81,12 +85,13 @@ export default function RideConfirmationScreen() {
           routeSource={routeSource}
           showCompass={false}
           showRouteBadge={false}
+          topInset={BACK_BUTTON_TOP + BACK_BUTTON_SIZE}
           style={StyleSheet.absoluteFillObject}
         />
 
         <FloatingIconButton
           style={styles.backButton}
-          size={38}
+          size={BACK_BUTTON_SIZE}
           onPress={() => setScreenState('destination_select')}
           accessibilityLabel="Back"
         >
@@ -200,7 +205,7 @@ const styles = StyleSheet.create({
   },
   backButton: {
     position: 'absolute',
-    top: 10,
+    top: BACK_BUTTON_TOP,
     left: SPACING.md,
   },
   routeCard: {

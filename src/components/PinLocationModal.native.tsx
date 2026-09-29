@@ -1,14 +1,15 @@
-import React, { useRef } from 'react';
-import { StyleSheet, Platform } from 'react-native';
-import MapView, { Marker, Polyline, UrlTile, MapPressEvent } from 'react-native-maps';
+import React, { useEffect, useRef } from 'react';
+import { Image, StyleSheet } from 'react-native';
+import { Map, Camera, Marker, GeoJSONSource, Layer, type CameraRef } from '@maplibre/maplibre-react-native';
 import { PICKUP_PIN_IMAGE, DESTINATION_PIN_IMAGE } from '../constants/mapPins';
+import { CARTO_MAP_STYLE, PIN_SIZE, deltaToZoom, routeLineFeature, routeLinePaint, boundsOf } from '../constants/cartoMap';
 import { LocationPoint } from '../types';
 import { usePinLocation } from '../hooks/usePinLocation';
 import PinLocationSheet from './PinLocationSheet';
 import PinLocationPending from './PinLocationPending';
 
-const CARTO_URL_TEMPLATE =
-  'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?key=cb1_3qo7_1_ac41fdc9883213d666d06544';
+/** Pin Location camera span (degrees, ~1.1 km), converted to a MapLibre zoom. */
+const PIN_ZOOM_DELTA = 0.01;
 
 interface PinLocationModalProps {
   visible: boolean;
@@ -29,7 +30,8 @@ function PinLocationModalContent({
   mode = 'destination',
   confirmLabel,
 }: PinLocationModalProps) {
-  const mapRef = useRef<MapView | null>(null);
+  const cameraRef = useRef<CameraRef | null>(null);
+  const pinZoom = deltaToZoom(PIN_ZOOM_DELTA);
   const {
     pinnedLocation,
     routeCoordinates,
@@ -46,97 +48,123 @@ function PinLocationModalContent({
     mode
   );
 
-  if (awaitingLocation) {
+  // Pin Pickup Location: the map mounts immediately (tiles start loading) while the real GPS fix
+  // is fetched; the pin and camera land on it the moment it arrives. Nothing is pinned, and
+  // nothing can be confirmed, until then.
+  const initialCenter = useRef(
+    pinnedLocation || (currentPickup ? currentPickup : { lat: 14.0718, lng: 120.6325 })
+  ).current;
+  const wasAwaitingRef = useRef(awaitingLocation);
+  useEffect(() => {
+    if (wasAwaitingRef.current && !awaitingLocation && pinnedLocation) {
+      wasAwaitingRef.current = false;
+      cameraRef.current?.easeTo({
+        center: [pinnedLocation.lng, pinnedLocation.lat],
+        zoom: pinZoom,
+        duration: initialCenter ? 600 : 0,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [awaitingLocation]);
+
+  // Only a FAILED location (permission denied / no GPS) replaces the map with the retry screen.
+  if (awaitingLocation && locationError && !isLocating) {
     return <PinLocationPending isLocating={isLocating} error={locationError} onRetry={retryLocation} onClose={onClose} />;
   }
 
-  const handlePress = (e: MapPressEvent) => {
-    const { latitude, longitude } = e.nativeEvent.coordinate;
-    pickPoint({ lat: latitude, lng: longitude });
+  const handlePress = (e: { nativeEvent: { lngLat: [number, number] } }) => {
+    if (awaitingLocation) return;
+    const [lng, lat] = e.nativeEvent.lngLat;
+    pickPoint({ lat, lng });
   };
 
   const handleRecenter = () => {
-    mapRef.current?.animateToRegion(
-      {
-        latitude: pinnedLocation.lat,
-        longitude: pinnedLocation.lng,
-        latitudeDelta: 0.01,
-        longitudeDelta: 0.01,
-      },
-      600
-    );
+    if (awaitingLocation) return;
+    if (currentPickup && pinnedLocation) {
+      const points: { lat: number; lng: number }[] = [
+        { lat: currentPickup.lat, lng: currentPickup.lng },
+        { lat: pinnedLocation.lat, lng: pinnedLocation.lng },
+      ];
+      if (routeCoordinates && routeCoordinates.length > 0) {
+        const step = Math.max(1, Math.ceil(routeCoordinates.length / 20));
+        routeCoordinates.forEach((c, i) => {
+          if (i % step === 0 || i === routeCoordinates.length - 1) {
+            points.push({ lat: c.lat, lng: c.lng });
+          }
+        });
+      }
+      cameraRef.current?.fitBounds(boundsOf(points), {
+        padding: { top: 110, right: 32, bottom: 220, left: 32 },
+        duration: 500,
+      });
+    } else if (pinnedLocation) {
+      cameraRef.current?.easeTo({ center: [pinnedLocation.lng, pinnedLocation.lat], zoom: pinZoom, duration: 600 });
+    } else if (currentPickup) {
+      cameraRef.current?.easeTo({ center: [currentPickup.lng, currentPickup.lat], zoom: pinZoom, duration: 600 });
+    }
   };
 
   return (
     <PinLocationSheet
       pinnedLocation={pinnedLocation}
-      isResolving={isResolving}
+      isResolving={isResolving || awaitingLocation}
       onClose={onClose}
       onRecenter={handleRecenter}
       onConfirm={() => {
+        if (!pinnedLocation) return;
         onConfirmPin(pinnedLocation);
         onClose();
       }}
       mode={mode}
       confirmLabel={confirmLabel}
     >
-      <MapView
-        ref={mapRef}
+      <Map
         style={StyleSheet.absoluteFillObject}
-        initialRegion={{
-          latitude: pinnedLocation.lat,
-          longitude: pinnedLocation.lng,
-          latitudeDelta: 0.01,
-          longitudeDelta: 0.01,
-        }}
-        mapType={Platform.OS === 'android' ? 'none' : 'standard'}
+        mapStyle={CARTO_MAP_STYLE}
+        attribution={false}
+        logo={false}
+        compass={false}
         onPress={handlePress}
       >
-        <UrlTile
-          urlTemplate={CARTO_URL_TEMPLATE}
-          maximumZ={19}
-          flipY={false}
-          tileSize={256}
-          shouldReplaceMapContent={true}
-          zIndex={1}
+        <Camera
+          ref={cameraRef}
+          initialViewState={initialCenter ? { center: [initialCenter.lng, initialCenter.lat], zoom: pinZoom } : undefined}
         />
 
-        {/* Same static pins as the booking map (constants/mapPins) — tip anchored (0.5, 1).
+        {/* Route: a style layer above the CARTO raster, below the pins (native views). */}
+        {routeCoordinates.length > 0 && (
+          <GeoJSONSource id="pin-route" data={routeLineFeature(routeCoordinates)}>
+            <Layer
+              id="pin-route-line"
+              type="line"
+              layout={{ 'line-join': 'round', 'line-cap': routeSource === 'fallback' ? 'butt' : 'round' }}
+              paint={routeLinePaint(routeSource === 'fallback')}
+            />
+          </GeoJSONSource>
+        )}
+
+        {/* Same static pins as the booking map (constants/mapPins) — tip anchored "bottom".
             currentPickup is really "the other, unchanged endpoint": in pickup mode that's the
             destination (red), in destination mode the pickup (green); the pin being dropped is
             colored by what it's ABOUT TO BECOME. */}
-        {currentPickup && (
+        {currentPickup ? (
+          <Marker id="other-endpoint-pin" lngLat={[currentPickup.lng, currentPickup.lat]} anchor="bottom">
+            <Image source={mode === 'pickup' ? DESTINATION_PIN_IMAGE : PICKUP_PIN_IMAGE} style={PIN_SIZE} />
+          </Marker>
+        ) : null}
+
+        {/* Rendered last so it draws above the other pin. Tapping it recenters (not a new pick). */}
+        {!awaitingLocation && pinnedLocation ? (
           <Marker
-            zIndex={10}
-            coordinate={{ latitude: currentPickup.lat, longitude: currentPickup.lng }}
-            image={mode === 'pickup' ? DESTINATION_PIN_IMAGE : PICKUP_PIN_IMAGE}
-            anchor={{ x: 0.5, y: 1 }}
-          />
-        )}
-
-        <Marker
-          zIndex={11}
-          coordinate={{ latitude: pinnedLocation.lat, longitude: pinnedLocation.lng }}
-          image={mode === 'pickup' ? PICKUP_PIN_IMAGE : DESTINATION_PIN_IMAGE}
-          anchor={{ x: 0.5, y: 1 }}
-          onPress={(e) => {
-            e.stopPropagation();
-            handleRecenter();
-          }}
-        />
-
-        {routeCoordinates.length > 0 && (
-          <Polyline
-            // Above the basemap UrlTile (zIndex 1), below the pins (10+) — at the default 0 the
-            // route is drawn under the opaque tile overlay and never shows.
-            zIndex={2}
-            coordinates={routeCoordinates.map((c) => ({ latitude: c.lat, longitude: c.lng }))}
-            strokeColor={routeSource === 'fallback' ? '#94A3B8' : '#2563EB'}
-            strokeWidth={routeSource === 'fallback' ? 4 : 5}
-            lineDashPattern={routeSource === 'fallback' ? [8, 6] : undefined}
-          />
-        )}
-      </MapView>
+            id="pinned-pin"
+            lngLat={[pinnedLocation.lng, pinnedLocation.lat]}
+            anchor="bottom"
+            onPress={handleRecenter}
+          >
+            <Image source={mode === 'pickup' ? PICKUP_PIN_IMAGE : DESTINATION_PIN_IMAGE} style={PIN_SIZE} />
+          </Marker>
+        ) : null}
+      </Map>
     </PinLocationSheet>
   );
 }

@@ -106,7 +106,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 16,
-    fontWeight: '900',
+    fontWeight: '700',
     color: COLORS.danger,
     letterSpacing: 0.6,
     marginBottom: 6,
@@ -145,7 +145,7 @@ const styles = StyleSheet.create({
   },
   callBtnText: {
     color: '#FFFFFF',
-    fontWeight: '800',
+    fontWeight: '700',
     fontSize: 14,
   },
   tmoBtn: {

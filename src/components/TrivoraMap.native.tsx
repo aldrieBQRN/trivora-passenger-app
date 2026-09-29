@@ -1,23 +1,33 @@
 import React, { useRef, useEffect, useMemo, useCallback, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
-import MapView, { Marker, Polyline, UrlTile } from 'react-native-maps';
+import { View, Text, Image, StyleSheet, TouchableOpacity } from 'react-native';
+import { Map, Camera, Marker, GeoJSONSource, Layer, type CameraRef } from '@maplibre/maplibre-react-native';
 import { COLORS, RADIUS, SHADOWS } from '../constants/theme';
-import { Compass, Shield, ChevronRight, Zap, LocateFixed } from 'lucide-react-native';
+import { Compass, Zap, LocateFixed } from 'lucide-react-native';
 import { TricycleIcon } from './icons';
 
 import { PICKUP_PIN_IMAGE, DESTINATION_PIN_IMAGE } from '../constants/mapPins';
+import {
+  CARTO_MAP_STYLE,
+  NO_PADDING,
+  PIN_SIZE,
+  deltaToZoom,
+  boundsOf,
+  routeLineFeature,
+  routeLinePaint,
+} from '../constants/cartoMap';
 import { TODA_ZONES } from '../constants/todaRoutes';
 import { fetchTodaZones } from '../services/api';
 import { TodaZone } from '../types';
 import { TrivoraMapProps } from './TrivoraMap.types';
 import { haversineKm } from '../utils/routeInterpolation';
 
-/** Max route vertices handed to fitToCoordinates - covers the route's whole extent without
- * passing thousands of points across the native bridge. */
+/** Max route vertices used for fitBounds - covers the route's whole extent without walking
+ * thousands of points on every reframe. */
 const MAX_FIT_ROUTE_POINTS = 40;
 
-/** Home map zoom: visible span in degrees (~0.004° ≈ 450 m top-to-bottom; was 0.008°). Same value as
- * the Driver Home map. Used for the initial region and the Home recenter — single-point framing only. */
+/** Home map zoom: visible span in degrees (~0.004° ≈ 450 m; was 0.008°), converted to a MapLibre
+ * zoom by deltaToZoom. Same value as the Driver Home map. Used for the initial camera and the Home
+ * recenter — single-point framing only. */
 const HOME_ZOOM_DELTA = 0.004;
 /** Follow mode: a location update at least this far (km, ~3 m) from where the camera last
  * centered moves the camera; smaller moves (GPS jitter) don't twitch it. */
@@ -29,28 +39,6 @@ const FOLLOW_MIN_MOVE_KM = 0.003;
 const REFRAME_THRESHOLD_KM = 0.12;
 /** Fixed breathing room added on top of the caller-supplied chrome insets. */
 const EDGE_MARGIN = 40;
-
-const CARTO_URL_TEMPLATE =
-  'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?key=cb1_3qo7_1_ac41fdc9883213d666d06544';
-
-const VOYAGER_MAP_STYLE = [
-  { elementType: 'geometry', stylers: [{ color: '#FAF6EE' }] },
-  { elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#786F66' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#FAF6EE' }] },
-  { featureType: 'administrative.land_parcel', stylers: [{ visibility: 'off' }] },
-  { featureType: 'landscape.man_made', elementType: 'geometry', stylers: [{ color: '#F0ECE3' }] },
-  { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#D8F3DC' }] },
-  { featureType: 'poi.park', elementType: 'labels.text.fill', stylers: [{ color: '#427848' }] },
-  { featureType: 'road.highway', elementType: 'geometry.fill', stylers: [{ color: '#FFB74D' }] },
-  { featureType: 'road.highway', elementType: 'geometry.stroke', stylers: [{ color: '#E68A00' }] },
-  { featureType: 'road.arterial', elementType: 'geometry.fill', stylers: [{ color: '#FFE4BA' }] },
-  { featureType: 'road.arterial', elementType: 'geometry.stroke', stylers: [{ color: '#F4C793' }] },
-  { featureType: 'road.local', elementType: 'geometry.fill', stylers: [{ color: '#FFFFFF' }] },
-  { featureType: 'road.local', elementType: 'geometry.stroke', stylers: [{ color: '#E8DEC8' }] },
-  { featureType: 'water', elementType: 'geometry.fill', stylers: [{ color: '#85CBE6' }] },
-  { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#2E7997' }] },
-];
 
 export default function TrivoraMapNative({
   pickup = { lat: 14.0715, lng: 120.633, name: 'Bucana, Nasugbu Batangas' },
@@ -83,7 +71,13 @@ export default function TrivoraMapNative({
     });
   }, []);
 
-  const mapRef = useRef<MapView | null>(null);
+  const cameraRef = useRef<CameraRef | null>(null);
+  const mapMountedRef = useRef(false);
+  const [mapWidth, setMapWidth] = useState(0);
+  const homeZoom = deltaToZoom(HOME_ZOOM_DELTA, mapWidth);
+  // Set once the native map has loaded (and so has its real layout) — the automatic framing waits
+  // for it, because a fit issued earlier can be dropped and leave the camera on its initial view.
+  const [mapReady, setMapReady] = useState(false);
 
   // ---- Focus Current Location (Home only) ----
   // Following starts only when the user taps Focus. Live positions arrive through the
@@ -95,10 +89,8 @@ export default function TrivoraMapNative({
   const followCenterRef = useRef<{ lat: number; lng: number } | null>(null);
   const centerOnUser = (loc: { lat: number; lng: number }) => {
     followCenterRef.current = loc;
-    mapRef.current?.animateToRegion(
-      { latitude: loc.lat, longitude: loc.lng, latitudeDelta: HOME_ZOOM_DELTA, longitudeDelta: HOME_ZOOM_DELTA },
-      500
-    );
+    // Home only, so the chrome padding (the old mapPadding) always applies.
+    cameraRef.current?.easeTo({ center: [loc.lng, loc.lat], zoom: homeZoom, padding: edgePadding, duration: 500 });
   };
 
   const setFollowing = (on: boolean) => {
@@ -121,6 +113,13 @@ export default function TrivoraMapNative({
   // Home with Focus: the green pin IS the passenger's live position (not the booking pickup), and
   // the Home camera centers on the same coordinate — one source for marker and camera.
   const homeLocation = focusCurrentLocation && !hasRoute && currentLocation ? currentLocation : null;
+  // Home map before the first real GPS fix: the map is already mounted and loading tiles, but has
+  // no pin and no camera target yet (never the booking's default pickup coordinate).
+  const isHomeMap = focusCurrentLocation && !hasRoute;
+  const awaitingHomeLocation = isHomeMap && !homeLocation;
+  // Captured at mount: a map that mounted with no position yet jumps (not flies from the world
+  // view) to the first real fix.
+  const mountedWithoutCenterRef = useRef(awaitingHomeLocation);
 
   // Following: every new live position (>= FOLLOW_MIN_MOVE_KM from the last centered one) moves
   // the camera to exactly where the pin now is.
@@ -132,9 +131,9 @@ export default function TrivoraMapNative({
   }, [homeLocation?.lat, homeLocation?.lng]);
 
   // Derived from the caller's actual header/bottom-sheet heights (not a guessed geographic
-  // offset) — react-native-maps applies this to every camera operation, including the plain
-  // single-point animateToRegion below, so the "important pin" stays inside the visible area
-  // instead of the map treating the full screen (chrome included) as usable space.
+  // offset) — passed as the camera padding (route fits, and every Home camera move), so the
+  // "important pin" stays inside the visible area instead of the map treating the full screen
+  // (chrome included) as usable space.
   const edgePadding = useMemo(
     () => ({ top: topInset + EDGE_MARGIN, right: EDGE_MARGIN, bottom: bottomInset + EDGE_MARGIN, left: EDGE_MARGIN }),
     [topInset, bottomInset]
@@ -142,12 +141,13 @@ export default function TrivoraMapNative({
 
   /** Frames whichever of pickup/dropoff/driver are relevant right now — shared by the
    * automatic phase-transition follow effect and the manual recenter button, so both behave
-   * identically instead of recenter only ever framing pickup. Uses fitToCoordinates' edge
-   * padding for multi-point framing instead of a manually computed lat/lng midpoint, so markers
-   * stay inside the visible (non-overlaid) map area rather than the raw geographic center. */
+   * identically instead of recenter only ever framing pickup. Uses fitBounds' padding for
+   * multi-point framing instead of a manually computed lat/lng midpoint, so markers stay inside
+   * the visible (non-overlaid) map area rather than the raw geographic center. */
   const frameRelevantPoints = useCallback(
     (animated: boolean) => {
-      if (!mapRef.current) return;
+      const camera = cameraRef.current;
+      if (!camera) return;
 
       const targetEnd =
         dropoff ||
@@ -155,45 +155,43 @@ export default function TrivoraMapNative({
 
       if (targetEnd) {
         const points = [
-          { latitude: pickup.lat, longitude: pickup.lng },
-          { latitude: targetEnd.lat, longitude: targetEnd.lng },
+          { lat: pickup.lat, lng: pickup.lng },
+          { lat: targetEnd.lat, lng: targetEnd.lng },
         ];
-        if (driverLocation) points.push({ latitude: driverLocation.lat, longitude: driverLocation.lng });
+        if (driverLocation) points.push({ lat: driverLocation.lat, lng: driverLocation.lng });
         // Also fit the road route itself (sampled) so a route that bulges past its two endpoints
         // is not clipped - the route is the trip's real extent, not the span of its two ends.
         if (routeCoordinates && routeCoordinates.length > 0) {
           const step = Math.max(1, Math.ceil(routeCoordinates.length / MAX_FIT_ROUTE_POINTS));
           routeCoordinates.forEach((c, i) => {
-            if (i % step === 0 || i === routeCoordinates.length - 1) points.push({ latitude: c.lat, longitude: c.lng });
+            if (i % step === 0 || i === routeCoordinates.length - 1) points.push({ lat: c.lat, lng: c.lng });
           });
         }
-        mapRef.current.fitToCoordinates(points, { edgePadding, animated });
+        camera.fitBounds(boundsOf(points), { padding: edgePadding, duration: animated ? 500 : 0 });
       } else {
-        const map = mapRef.current;
-        // Single point (Home, no route yet): center EXACTLY on the pin's own coordinate (the live
-        // position on Home, otherwise pickup). No mapPadding is applied to a route-less map (see the MapView below), and
-        // there is no pixel/coordinate correction or timer: one camera call, nothing competing.
+        if (awaitingHomeLocation) return; // no real position yet — framed when the first fix lands
+        if (mountedWithoutCenterRef.current) {
+          mountedWithoutCenterRef.current = false;
+          animated = false;
+        }
+        // Single point (no route yet): center EXACTLY on the pin's own coordinate (the live
+        // position on Home, otherwise pickup). Home centers within the header/sheet padding; a
+        // route-less non-Home map gets none. No pixel/coordinate correction or timer: one camera
+        // call, nothing competing.
         const pinPoint = homeLocation ?? pickup;
+        const padding = isHomeMap ? edgePadding : NO_PADDING;
         followCenterRef.current = homeLocation;
         if (__DEV__) {
           console.log(
-            `[passenger-map] animateToRegion target=(${pinPoint.lat}, ${pinPoint.lng}) marker=(${pinPoint.lat}, ${pinPoint.lng}) ` +
-              `mapPadding=none delta=${HOME_ZOOM_DELTA}`
+            `[passenger-map] easeTo target=(${pinPoint.lat}, ${pinPoint.lng}) marker=(${pinPoint.lat}, ${pinPoint.lng}) ` +
+              `padding=${JSON.stringify(padding)} zoom=${homeZoom.toFixed(2)}`
           );
         }
-        map.animateToRegion(
-          {
-            latitude: pinPoint.lat,
-            longitude: pinPoint.lng,
-            latitudeDelta: HOME_ZOOM_DELTA,
-            longitudeDelta: HOME_ZOOM_DELTA,
-          },
-          animated ? 600 : 0
-        );
+        camera.easeTo({ center: [pinPoint.lng, pinPoint.lat], zoom: homeZoom, padding, duration: animated ? 600 : 0 });
       }
       if (driverLocation) lastFramedRef.current = { lat: driverLocation.lat, lng: driverLocation.lng };
     },
-    [pickup.lat, pickup.lng, dropoff?.lat, dropoff?.lng, isEnRoute, driverLocation?.lat, driverLocation?.lng, edgePadding, routeCoordinates, homeLocation?.lat, homeLocation?.lng]
+    [pickup.lat, pickup.lng, dropoff?.lat, dropoff?.lng, isEnRoute, driverLocation?.lat, driverLocation?.lng, edgePadding, routeCoordinates, homeLocation?.lat, homeLocation?.lng, isHomeMap, homeZoom]
   );
 
   // Auto-frame on mount and whenever the destination or ride phase changes — deliberately NOT
@@ -201,12 +199,13 @@ export default function TrivoraMapNative({
   // and re-ran on every ~2.8s simulated GPS update, fighting any manual pan/zoom and animating
   // the whole map every few seconds even when nothing meaningful had changed).
   useEffect(() => {
+    if (!mapReady) return;
     frameRelevantPoints(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   // The route arrives asynchronously after the endpoints - re-fit when it does, but only while the
   // trip is being PLANNED. During an active ride the route is re-fetched as the driver moves and
   // must not keep re-animating the camera.
-  }, [pickup.lat, pickup.lng, dropoff?.lat, dropoff?.lng, isEnRoute, isInTransit, edgePadding, isEnRoute || isInTransit ? null : routeCoordinates]);
+  }, [mapReady, pickup.lat, pickup.lng, dropoff?.lat, dropoff?.lng, isEnRoute, isInTransit, edgePadding, isEnRoute || isInTransit ? null : routeCoordinates, !!homeLocation]);
 
   // While following a driver, keep them (and the target) in frame as they move — but only once
   // they've moved meaningfully since the camera was last positioned, not on every tick.
@@ -222,17 +221,15 @@ export default function TrivoraMapNative({
     if (onRecenter) onRecenter();
   };
 
-  const polylineCoords = useMemo(
-    () => (routeCoordinates || []).map((c) => ({ latitude: c.lat, longitude: c.lng })),
-    [routeCoordinates]
-  );
+  const polylineCoords = routeCoordinates || [];
+  const routeFeature = useMemo(() => routeLineFeature(routeCoordinates || []), [routeCoordinates]);
 
   const isFallbackRoute = routeSource === 'fallback';
 
   if (__DEV__ && driverLocation) {
     console.log(`[passenger-driver-heading] latitude=${driverLocation.lat}`);
     console.log(`[passenger-driver-heading] longitude=${driverLocation.lng}`);
-    console.log(`[passenger-driver-heading] heading=${driverLocation.heading} (value passed to rotation={heading})`);
+    console.log(`[passenger-driver-heading] heading=${driverLocation.heading} (value passed to the marker's rotate transform)`);
   }
 
   if (__DEV__ && hasRoute) {
@@ -240,106 +237,94 @@ export default function TrivoraMapNative({
     const last = polylineCoords[polylineCoords.length - 1];
     console.log(
       `[passenger-route] count=${polylineCoords.length} source=${routeSource} ` +
-        `first=${first ? `(${first.latitude}, ${first.longitude})` : 'none'} ` +
-        `last=${last ? `(${last.latitude}, ${last.longitude})` : 'none'} ` +
+        `first=${first ? `(${first.lat}, ${first.lng})` : 'none'} ` +
+        `last=${last ? `(${last.lat}, ${last.lng})` : 'none'} ` +
         `pickup=(${pickup.lat}, ${pickup.lng}) dropoff=${dropoff ? `(${dropoff.lat}, ${dropoff.lng})` : 'none'}`
     );
   }
 
-  // Same as the Driver Home map: native applies a mapPadding change asynchronously, so a Home map
-  // framed before the header/sheet heights are measured would be framed against the wrong (0)
-  // padding. Create Home's MapView only once both insets are known, so it starts with its final
-  // padding and centers the pin in the visible area from the first frame.
-  const homeInsetsMeasured = !homeLocation || (topInset > 0 && bottomInset > 0);
+  // Same as the Driver Home map: a Home map framed before the header/sheet heights are measured
+  // would be framed against the wrong (0) padding. Create Home's map only once both insets are
+  // known, so it starts with its final padding and centers the pin in the visible area from the
+  // first frame.
+  // Waits only for the header/sheet LAYOUT (one frame), never for GPS or any API data; once the
+  // map has mounted it is never torn down again by later inset changes.
+  const homeInsetsMeasured = !isHomeMap || (topInset > 0 && bottomInset > 0) || mapMountedRef.current;
   if (!homeInsetsMeasured) {
     return <View style={[styles.container, style]} />;
   }
+  mapMountedRef.current = true;
 
   return (
-    <View style={[styles.container, style]}>
-      <MapView
-        ref={mapRef}
+    <View style={[styles.container, style]} onLayout={(e) => setMapWidth(e.nativeEvent.layout.width)}>
+      <Map
         style={StyleSheet.absoluteFillObject}
-        initialRegion={{
-          latitude: (homeLocation ?? pickup).lat,
-          longitude: (homeLocation ?? pickup).lng,
-          latitudeDelta: HOME_ZOOM_DELTA,
-          longitudeDelta: HOME_ZOOM_DELTA,
-        }}
-        mapType={Platform.OS === 'android' ? 'none' : 'standard'}
-        customMapStyle={VOYAGER_MAP_STYLE}
-        showsUserLocation={false}
-        onRegionChangeComplete={(_region, details) => {
+        mapStyle={CARTO_MAP_STYLE}
+        attribution={false}
+        logo={false}
+        compass={false}
+        onDidFinishLoadingMap={() => setMapReady(true)}
+        onRegionDidChange={(e) => {
           // A manual pan/zoom pauses following and leaves the map where the user put it.
-          if (details?.isGesture && isFollowingRef.current) setFollowing(false);
+          if (e.nativeEvent.userInteraction && isFollowingRef.current) setFollowing(false);
         }}
-        showsCompass={false}
-        // Home (live-location pin): mapPadding = the measured header/sheet insets, exactly like the
-        // Driver Home map — the native map then centers every camera move (initial region, Focus,
-        // follow) in the VISIBLE strip between header and sheet, with no pixel correction on top.
-        // Route framing (hasRoute) still gets NO mapPadding: fitToCoordinates carries the insets
-        // itself via edgePadding, and both together would apply them twice.
-        mapPadding={homeLocation ? edgePadding : undefined}
       >
-        <UrlTile
-          urlTemplate={CARTO_URL_TEMPLATE}
-          maximumZ={19}
-          flipY={false}
-          tileSize={256}
-          shouldReplaceMapContent={true}
-          zIndex={1}
+        <Camera
+          ref={cameraRef}
+          // Home (live-location pin) starts centered in the VISIBLE strip between header and sheet
+          // (the measured insets as camera padding, exactly like the Driver Home map). Route
+          // framing carries the insets itself via fitBounds' padding.
+          // A planned trip (dropoff set) starts already framed on pickup + destination, so it never
+          // opens zoomed in on the pickup alone; the fit effect adds the route after load.
+          initialViewState={dropoff ? {
+            bounds: boundsOf([pickup, dropoff]),
+            padding: edgePadding,
+          } : awaitingHomeLocation ? undefined : {
+            center: [(homeLocation ?? pickup).lng, (homeLocation ?? pickup).lat],
+            zoom: homeZoom,
+            padding: isHomeMap ? edgePadding : NO_PADDING,
+          }}
         />
 
-        {/* Pickup / destination pins — static bitmap markers (assets/map/pin-*.png, 28x36 at 1x,
-            @2x/@3x variants), cropped so the pin's tip is the bottom-center pixel of the image.
-            Passed as the Marker `image` (not a React/SVG child), so the native map anchors the
-            bitmap itself: no view-to-bitmap snapshot whose bounds could differ from the visible
-            pin. anchor (0.5, 1) = bottom-center = the tip = the exact coordinate, at every zoom. */}
-        <Marker
-          zIndex={10}
-          coordinate={{ latitude: (homeLocation ?? pickup).lat, longitude: (homeLocation ?? pickup).lng }}
-          image={PICKUP_PIN_IMAGE}
-          anchor={{ x: 0.5, y: 1 }}
-        />
-
-        {dropoff && (
-          <Marker
-            zIndex={10}
-            coordinate={{ latitude: dropoff.lat, longitude: dropoff.lng }}
-            image={DESTINATION_PIN_IMAGE}
-            anchor={{ x: 0.5, y: 1 }}
-          />
+        {/* Route: a style layer, so it draws above the CARTO raster and below the markers (which
+            are native views on top of the map). */}
+        {polylineCoords.length > 0 && (
+          <GeoJSONSource id="route" data={routeFeature}>
+            <Layer
+              id="route-line"
+              type="line"
+              layout={{ 'line-join': 'round', 'line-cap': isFallbackRoute ? 'butt' : 'round' }}
+              paint={routeLinePaint(isFallbackRoute)}
+            />
+          </GeoJSONSource>
         )}
 
-        {/* Moving Driver Marker */}
-        {driverLocation && (
-          <Marker
-            zIndex={12}
-            coordinate={{ latitude: driverLocation.lat, longitude: driverLocation.lng }}
-            rotation={driverLocation.heading}
-            anchor={{ x: 0.5, y: 0.5 }}
-          >
+        {/* Pickup / destination pins — static bitmaps (assets/map/pin-*.png, 28x36 at 1x,
+            @2x/@3x variants), cropped so the pin's tip is the bottom-center pixel of the image.
+            anchor "bottom" = bottom-center = the tip = the exact coordinate, at every zoom. */}
+        {!awaitingHomeLocation ? (
+          <Marker id="pickup-pin" lngLat={[(homeLocation ?? pickup).lng, (homeLocation ?? pickup).lat]} anchor="bottom">
+            <Image source={PICKUP_PIN_IMAGE} style={PIN_SIZE} />
+          </Marker>
+        ) : null}
+
+        {dropoff ? (
+          <Marker id="dropoff-pin" lngLat={[dropoff.lng, dropoff.lat]} anchor="bottom">
+            <Image source={DESTINATION_PIN_IMAGE} style={PIN_SIZE} />
+          </Marker>
+        ) : null}
+
+        {/* Moving Driver Marker — rendered last so it draws above the pins. */}
+        {driverLocation ? (
+          <Marker id="driver" lngLat={[driverLocation.lng, driverLocation.lat]} anchor="center">
             {/* Same rendering as the Driver app's own map marker (TrivoraDriverMap.native.tsx):
-                white bubble + TricycleIcon, native rotation = heading with NO base offset. */}
-            <View style={styles.trikeBubble}>
+                white bubble + TricycleIcon, rotated by heading with NO base offset. */}
+            <View style={[styles.trikeBubble, { transform: [{ rotate: `${driverLocation.heading || 0}deg` }] }]}>
               <TricycleIcon size={20} color={COLORS.primary} accentColor="#3B82F6" />
             </View>
           </Marker>
-        )}
-
-        {polylineCoords.length > 0 && (
-          <Polyline
-            // Must sit ABOVE the basemap UrlTile (zIndex 1, shouldReplaceMapContent) and below the
-            // markers (10+). Left at the default 0 it is drawn UNDER the opaque tile overlay on
-            // native (notably Android/Expo Go) — the route exists but is invisible.
-            zIndex={2}
-            coordinates={polylineCoords}
-            strokeColor={isFallbackRoute ? '#94A3B8' : '#2563EB'}
-            strokeWidth={isFallbackRoute ? 4 : 5}
-            lineDashPattern={isFallbackRoute ? [8, 6] : undefined}
-          />
-        )}
-      </MapView>
+        ) : null}
+      </Map>
 
       {/* Floating Route Info Badge */}
       {showRouteBadge && hasRoute && suggestedRouteInfo && (

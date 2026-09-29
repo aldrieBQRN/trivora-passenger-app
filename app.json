@@ -7,7 +7,9 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "splash": {
-      "backgroundColor": "#0F1E36"
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FFFFFF"
     },
     "ios": {
       "supportsTablet": true,
@@ -19,18 +21,14 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#0F1E36"
+        "backgroundColor": "#FFFFFF"
       },
       "package": "ph.gov.trivora.passenger",
-      "config": {
-        "googleMaps": {
-          "apiKey": "AIzaSyDummyKeyForTrivoraOsmCartoTiles"
-        }
-      },
       "permissions": [
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.CAMERA"
       ],
       "usesCleartextTraffic": true
     },
@@ -50,17 +48,25 @@
           "photosPermission": "Trivora needs access to your photos so you can set a profile picture.",
           "cameraPermission": "Trivora needs camera access so you can take a profile picture."
         }
-      ]
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Trivora uses the camera to scan the QR code on a tricycle so you can join its ride.",
+          "recordAudioAndroid": false
+        }
+      ],
+      "@maplibre/maplibre-react-native"
     ],
     "updates": {
       "url": "https://u.expo.dev/40f9df69-61f4-42ea-9324-7105370d0c13"
     },
-    "runtimeVersion": "1.0.0",
+    "runtimeVersion": "1.1.0",
     "extra": {
       "eas": {
         "projectId": "40f9df69-61f4-42ea-9324-7105370d0c13"
       }
     },
-    "owner": "aldrie_bqrn"
+    "owner": "aldriebqrn-team"
   }
 }

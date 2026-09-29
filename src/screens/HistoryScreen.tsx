@@ -94,11 +94,9 @@ export default function HistoryScreen({ onBackToMap: _onBackToMap }: HistoryScre
       >
         <View style={styles.routeCol}>
           <RouteSummaryStrip variant="readonly" pickupLabel={item.pickup} dropoffLabel={item.dropoff} />
-          {(!!item.driverName || !!item.time) && (
+          {(!!item.driverName || !!item.time || item.isWalkIn) && (
             <Text style={styles.metaText}>
-              {item.driverName}
-              {item.driverName && item.time ? ' · ' : ''}
-              {item.time}
+              {[item.isWalkIn ? 'Scan to Ride' : null, item.driverName, item.time].filter(Boolean).join(' · ')}
             </Text>
           )}
         </View>

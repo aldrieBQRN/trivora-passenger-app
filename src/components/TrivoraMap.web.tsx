@@ -4,7 +4,7 @@ import { MapContainer, TileLayer, Marker, Polyline, useMap } from 'react-leaflet
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { COLORS, RADIUS, SHADOWS } from '../constants/theme';
-import { Compass, Shield, ChevronRight, Zap } from 'lucide-react-native';
+import { Compass, Shield, ChevronRight, Zap, LocateFixed } from 'lucide-react-native';
 import { TODA_ZONES } from '../constants/todaRoutes';
 import { fetchTodaZones } from '../services/api';
 import { TodaZone } from '../types';
@@ -14,6 +14,8 @@ import { haversineKm } from '../utils/routeInterpolation';
 /** Mirrors the native map's re-frame threshold — see TrivoraMap.native.tsx. */
 const REFRAME_THRESHOLD_KM = 0.12;
 const EDGE_MARGIN = 40;
+/** Max route vertices used for the trip fit — same sampling as the native map. */
+const MAX_FIT_ROUTE_POINTS = 40;
 
 const TILE_URL = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=cb1_3qo7_1_ac41fdc9883213d666d06544';
 const TILE_ATTRIBUTION =
@@ -73,6 +75,9 @@ interface MapControllerProps {
   driverLocation?: { lat: number; lng: number } | null;
   isEnRoute: boolean;
   isFollowing: boolean;
+  /** Route to include in the trip fit — only while the trip is being planned (null during a ride,
+   * where the route is re-fetched as the driver moves and must not keep refitting the camera). */
+  planningRoute?: { lat: number; lng: number }[] | null;
   topInset: number;
   bottomInset: number;
   recenterSignal: number;
@@ -90,11 +95,15 @@ function MapController({
   driverLocation,
   isEnRoute,
   isFollowing,
+  planningRoute,
   topInset,
   bottomInset,
   recenterSignal,
 }: MapControllerProps) {
   const map = useMap();
+  // Leaflet measures its container once at creation; inside a flex layout that size can be wrong
+  // until invalidateSize(). Automatic framing waits for it, so the first fit uses the real map area.
+  const [sized, setSized] = useState(false);
   const lastFramedRef = useRef<{ lat: number; lng: number } | null>(null);
 
   const frame = useCallback(
@@ -106,6 +115,14 @@ function MapController({
           [targetEnd.lat, targetEnd.lng],
         ];
         if (driverLocation) points.push([driverLocation.lat, driverLocation.lng]);
+        // Also fit the road route itself (sampled), like the native map, so a route that bulges
+        // past its two endpoints is not clipped.
+        if (planningRoute && planningRoute.length > 0) {
+          const step = Math.max(1, Math.ceil(planningRoute.length / MAX_FIT_ROUTE_POINTS));
+          planningRoute.forEach((c, i) => {
+            if (i % step === 0 || i === planningRoute.length - 1) points.push([c.lat, c.lng]);
+          });
+        }
         const bounds = L.latLngBounds(points);
         const opts = {
           paddingTopLeft: [EDGE_MARGIN, topInset + EDGE_MARGIN] as [number, number],
@@ -130,20 +147,28 @@ function MapController({
       }
       if (driverLocation) lastFramedRef.current = driverLocation;
     },
-    [map, pickup.lat, pickup.lng, dropoff?.lat, dropoff?.lng, isEnRoute, driverLocation?.lat, driverLocation?.lng, topInset, bottomInset]
+    [map, pickup.lat, pickup.lng, dropoff?.lat, dropoff?.lng, isEnRoute, driverLocation?.lat, driverLocation?.lng, planningRoute, topInset, bottomInset]
   );
 
   // Leaflet needs an explicit size recalculation once it's actually laid out
   // inside a flex container, otherwise tiles can render blank until resize.
   useEffect(() => {
-    const timer = setTimeout(() => map.invalidateSize(), 150);
+    const timer = setTimeout(() => {
+      map.invalidateSize();
+      setSized(true);
+    }, 150);
     return () => clearTimeout(timer);
   }, [map]);
 
+  // First frame once sized (not animated — the map opens on the trip), then on endpoint/phase/inset
+  // changes and when the planned route arrives.
+  const hasFramedRef = useRef(false);
   useEffect(() => {
-    frame(true);
+    if (!sized) return;
+    frame(hasFramedRef.current);
+    hasFramedRef.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pickup.lat, pickup.lng, dropoff?.lat, dropoff?.lng, isEnRoute, topInset, bottomInset]);
+  }, [sized, pickup.lat, pickup.lng, dropoff?.lat, dropoff?.lng, isEnRoute, planningRoute, topInset, bottomInset]);
 
   useEffect(() => {
     if (!isFollowing || !driverLocation || !lastFramedRef.current) return;
@@ -156,6 +181,67 @@ function MapController({
     if (recenterSignal > 0) frame(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recenterSignal]);
+
+  return null;
+}
+
+/** Same threshold as the native map: follow moves the camera once the position has moved this far. */
+const FOLLOW_MIN_MOVE_KM = 0.003;
+const FOCUS_ZOOM = 17;
+
+interface FocusControllerProps {
+  location: { lat: number; lng: number } | null;
+  following: boolean;
+  focusSignal: number;
+  topInset: number;
+  bottomInset: number;
+  onUserMoved: () => void;
+}
+
+/**
+ * Home's Focus Current Location, matching the native map: a tap centers on the passenger's real
+ * live position (inside the visible strip between header and sheet) and keeps following it as it
+ * moves; a manual drag or zoom stops following and leaves the map where the user put it.
+ */
+function FocusController({ location, following, focusSignal, topInset, bottomInset, onUserMoved }: FocusControllerProps) {
+  const map = useMap();
+  const programmaticRef = useRef(false);
+  const lastCenterRef = useRef<{ lat: number; lng: number } | null>(null);
+
+  const centerOn = useCallback((loc: { lat: number; lng: number }) => {
+    const zoom = Math.max(map.getZoom(), FOCUS_ZOOM);
+    const pixel = map.project(L.latLng(loc.lat, loc.lng), zoom);
+    const center = map.unproject(L.point(pixel.x, pixel.y - (topInset - bottomInset) / 2), zoom);
+    programmaticRef.current = true;
+    lastCenterRef.current = loc;
+    map.flyTo(center, zoom, { duration: 0.5 });
+  }, [map, topInset, bottomInset]);
+
+  // A manual drag/zoom (not our own flyTo) pauses following.
+  useEffect(() => {
+    const onMoveEnd = () => { programmaticRef.current = false; };
+    const onUser = () => { if (!programmaticRef.current) onUserMoved(); };
+    map.on('moveend', onMoveEnd);
+    map.on('dragstart', onUser);
+    map.on('zoomstart', onUser);
+    return () => {
+      map.off('moveend', onMoveEnd);
+      map.off('dragstart', onUser);
+      map.off('zoomstart', onUser);
+    };
+  }, [map, onUserMoved]);
+
+  useEffect(() => {
+    if (focusSignal > 0 && location) centerOn(location);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusSignal]);
+
+  useEffect(() => {
+    if (!following || !location) return;
+    const last = lastCenterRef.current;
+    if (!last || haversineKm(last, location) >= FOLLOW_MIN_MOVE_KM) centerOn(location);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [following, location?.lat, location?.lng]);
 
   return null;
 }
@@ -177,6 +263,8 @@ export default function TrivoraMapWeb({
   bottomInset = 0,
   onTodaPress,
   onRecenter,
+  focusCurrentLocation = false,
+  currentLocation = null,
   style,
 }: TrivoraMapProps) {
   const [todaList, setTodaList] = useState<TodaZone[]>(TODA_ZONES);
@@ -196,6 +284,18 @@ export default function TrivoraMapWeb({
   const hasRoute = !!dropoff || isEnRoute || isInTransit;
   const isFallbackRoute = routeSource === 'fallback';
   const isFollowing = (isEnRoute || isInTransit) && !!driverLocation;
+
+  // Home only: the pin is the passenger's real live position (never a guessed coordinate), and
+  // Focus centers on / follows that same coordinate — as on the native map.
+  const homeLocation = focusCurrentLocation && !hasRoute && currentLocation ? currentLocation : null;
+  const [isFollowingUser, setIsFollowingUser] = useState(false);
+  const [focusSignal, setFocusSignal] = useState(0);
+  const handleFocus = () => {
+    if (!homeLocation) return;
+    setIsFollowingUser(true);
+    setFocusSignal((n) => n + 1);
+  };
+  const stopFollowingUser = useCallback(() => setIsFollowingUser(false), []);
 
   const pickupIcon = useMemo(() => makeDivIcon(PICKUP_ICON_HTML, 22, true), []);
   const dropoffIcon = useMemo(() => makeDivIcon(DROPOFF_ICON_HTML, 32, true), []);
@@ -261,12 +361,24 @@ export default function TrivoraMapWeb({
           driverLocation={driverLocation}
           isEnRoute={isEnRoute}
           isFollowing={isFollowing}
+          planningRoute={isEnRoute || isInTransit ? null : routeCoordinates}
           topInset={topInset}
           bottomInset={bottomInset}
           recenterSignal={recenterSignal}
         />
 
-        <Marker position={[pickup.lat, pickup.lng]} icon={pickupIcon} />
+        {focusCurrentLocation && (
+          <FocusController
+            location={homeLocation}
+            following={isFollowingUser}
+            focusSignal={focusSignal}
+            topInset={topInset}
+            bottomInset={bottomInset}
+            onUserMoved={stopFollowingUser}
+          />
+        )}
+
+        <Marker position={[(homeLocation ?? pickup).lat, (homeLocation ?? pickup).lng]} icon={pickupIcon} />
 
         {dropoff && <Marker position={[dropoff.lat, dropoff.lng]} icon={dropoffIcon} />}
 
@@ -302,6 +414,20 @@ export default function TrivoraMapWeb({
         </View>
       )}
 
+      {/* Focus Current Location (Home only) — just above the bottom sheet; filled while following. */}
+      {focusCurrentLocation && !hasRoute && (
+        <TouchableOpacity
+          style={[styles.focusButton, { bottom: bottomInset + 12 }, isFollowingUser && styles.focusButtonActive, !homeLocation && styles.focusButtonDisabled]}
+          onPress={handleFocus}
+          disabled={!homeLocation}
+          activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel="Focus current location"
+        >
+          <LocateFixed size={18} color={isFollowingUser ? '#FFFFFF' : COLORS.primary} />
+        </TouchableOpacity>
+      )}
+
       {showCompass && (
         <TouchableOpacity style={styles.compassButton} onPress={handleRecenter} activeOpacity={0.8}>
           <Compass size={18} color="#D97706" />
@@ -312,6 +438,28 @@ export default function TrivoraMapWeb({
 }
 
 const styles = StyleSheet.create({
+  // Same look as the native map's Focus button.
+  focusButton: {
+    position: 'absolute',
+    right: 16,
+    zIndex: 500,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.97)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    ...SHADOWS.sm,
+  },
+  focusButtonActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  focusButtonDisabled: {
+    opacity: 0.5,
+  },
   container: {
     flex: 1,
     backgroundColor: '#FAF6EE',

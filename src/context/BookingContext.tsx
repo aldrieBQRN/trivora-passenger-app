@@ -172,7 +172,12 @@ interface BookingContextType {
   completeRide: () => void;
   /** Starts rating a specific already-completed ride from Ride History — sets the booking to be
    * rated explicitly, rather than assuming whichever one completed most recently. */
-  startRatingBooking: (bookingId: number | string) => void;
+  /** `driver` (optional) shows the right driver on the Rate screen when the ride didn't come
+   * through the normal booking flow (e.g. a Scan to Ride trip). */
+  startRatingBooking: (
+    bookingId: number | string,
+    driver?: { name: string; avatarUrl?: string; plateNumber?: string; model?: string }
+  ) => void;
   finishReview: () => void;
   resetToHome: () => void;
   fastForwardSearch: () => void;
@@ -517,13 +522,16 @@ export function BookingProvider({ children }: { children: ReactNode }) {
   const [latestReceipt, setLatestReceipt] = useState<TripReceipt>(INITIAL_RECEIPT);
 
   // Rate & Review state
-  const [selectedRating, setSelectedRating] = useState<number>(5);
-  const [reviewComment, setReviewComment] = useState<string>('Mabait ang driver at maingat magmaneho.');
-  const [selectedCompliments, setSelectedCompliments] = useState<string[]>([
-    'Safe Driving',
-    'Courteous',
-    'Clean Trike',
-  ]);
+  // Starts empty: the passenger picks their own stars/tags/comment — never a pre-filled review
+  // submitted on their behalf. 0 = no star chosen yet (Submit stays disabled until 1–5).
+  const [selectedRating, setSelectedRating] = useState<number>(0);
+  const [reviewComment, setReviewComment] = useState<string>('');
+  const [selectedCompliments, setSelectedCompliments] = useState<string[]>([]);
+  const resetReviewForm = () => {
+    setSelectedRating(0);
+    setReviewComment('');
+    setSelectedCompliments([]);
+  };
 
   // Fetches the real road route for a pickup/dropoff pair and, once it
   // resolves, refines the instant haversine-based fareEstimate with the
@@ -1204,13 +1212,31 @@ export function BookingProvider({ children }: { children: ReactNode }) {
   // letting RateReviewScreen assume "whatever the last-known one was" — is what makes rating an
   // older, non-most-recent ride submit against the correct booking instead of silently doing
   // nothing or overwriting the wrong history row.
-  const startRatingBooking = (bookingId: number | string) => {
+  const startRatingBooking = (
+    bookingId: number | string,
+    driver?: { name: string; avatarUrl?: string; plateNumber?: string; model?: string }
+  ) => {
+    if (driver) {
+      setActiveDriver((prev) => ({
+        ...prev,
+        name: driver.name,
+        avatarUrl: driver.avatarUrl,
+        tricycle: {
+          ...prev.tricycle,
+          plateNumber: driver.plateNumber ?? prev.tricycle.plateNumber,
+          model: driver.model ?? prev.tricycle.model,
+        },
+      }));
+    }
+    resetReviewForm();
     setBookingIdToRate(bookingId);
     setScreenState('rate_review');
   };
 
   const finishReview = () => {
     const bookingId = bookingIdToRate;
+    // No star chosen — nothing valid to submit (the backend requires 1–5).
+    if (selectedRating < 1) return;
 
     // Optimistic — matched by the specific booking id being rated, not "whichever entry happens
     // to be first in the list", so rating an older ride from History can never overwrite a
@@ -1238,11 +1264,13 @@ export function BookingProvider({ children }: { children: ReactNode }) {
 
     setBookingIdToRate(null);
     setRealBookingId(null);
+    resetReviewForm();
     setScreenState('home');
   };
 
   const resetToHome = () => {
     setRealBookingId(null);
+    resetReviewForm();
     setScreenState('home');
   };
 

@@ -74,7 +74,6 @@ export default function ProfileScreen() {
       key: 'emergency',
       label: 'Emergency Contacts',
       icon: PhoneCall,
-      accentColor: COLORS.dangerDark,
       subtitle: emergencyContactName,
       rows: [
         { label: 'Nasugbu PNP Police Station', value: '(043) 931-1234 / 117' },
@@ -264,7 +263,7 @@ export default function ProfileScreen() {
 
         {/* Log Out — isolated destructive action, not buried in a settings list */}
         <TouchableOpacity style={styles.logOutBtn} onPress={handleLogoutPress} activeOpacity={0.8}>
-          <LogOut size={18} color={COLORS.danger} />
+          <LogOut size={18} color={COLORS.dangerDark} />
           <Text style={styles.logOutLabel}>Log Out</Text>
         </TouchableOpacity>
       </ScrollView>
@@ -426,7 +425,7 @@ const styles = StyleSheet.create({
   },
   detailValue: {
     ...TYPOGRAPHY.caption,
-    fontWeight: '800',
+    fontWeight: '700',
     color: COLORS.textPrimary,
     flexShrink: 1,
     textAlign: 'right',
@@ -440,12 +439,12 @@ const styles = StyleSheet.create({
     marginHorizontal: SPACING.md,
     height: BUTTONS.touchHeight,
     borderRadius: RADIUS.lg,
-    backgroundColor: COLORS.dangerLight,
-    borderWidth: 1,
-    borderColor: COLORS.dangerBorder,
+    backgroundColor: 'transparent',
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
   },
   logOutLabel: {
     ...TYPOGRAPHY.bodyLarge,
-    color: COLORS.danger,
+    color: COLORS.dangerDark,
   },
 });

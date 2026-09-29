@@ -32,7 +32,17 @@ function ClickHandler({ onPick }: { onPick: (p: { lat: number; lng: number }) =>
   return null;
 }
 
-function MapController({ target, recenterSignal }: { target: { lat: number; lng: number }; recenterSignal: number }) {
+function MapController({
+  target,
+  otherEndpoint,
+  routeCoordinates,
+  recenterSignal,
+}: {
+  target: { lat: number; lng: number } | null;
+  otherEndpoint?: LocationPoint;
+  routeCoordinates?: { lat: number; lng: number }[];
+  recenterSignal: number;
+}) {
   const map = useMap();
 
   useEffect(() => {
@@ -41,7 +51,31 @@ function MapController({ target, recenterSignal }: { target: { lat: number; lng:
   }, [map]);
 
   useEffect(() => {
-    if (recenterSignal > 0) map.flyTo([target.lat, target.lng], 16, { duration: 0.5 });
+    if (recenterSignal <= 0) return;
+    if (otherEndpoint && target) {
+      const points: [number, number][] = [
+        [otherEndpoint.lat, otherEndpoint.lng],
+        [target.lat, target.lng],
+      ];
+      if (routeCoordinates && routeCoordinates.length > 0) {
+        const step = Math.max(1, Math.ceil(routeCoordinates.length / 20));
+        routeCoordinates.forEach((c, i) => {
+          if (i % step === 0 || i === routeCoordinates.length - 1) {
+            points.push([c.lat, c.lng]);
+          }
+        });
+      }
+      const bounds = L.latLngBounds(points);
+      map.flyToBounds(bounds, {
+        paddingTopLeft: [36, 110],
+        paddingBottomRight: [36, 220],
+        duration: 0.5,
+      });
+    } else if (target) {
+      map.flyTo([target.lat, target.lng], 16, { duration: 0.5 });
+    } else if (otherEndpoint) {
+      map.flyTo([otherEndpoint.lat, otherEndpoint.lng], 16, { duration: 0.5 });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recenterSignal]);
 
@@ -96,6 +130,12 @@ function PinLocationModalContent({
     return <PinLocationPending isLocating={isLocating} error={locationError} onRetry={retryLocation} onClose={onClose} />;
   }
 
+  const initialMapCenter = useMemo<[number, number]>(() => {
+    if (pinnedLocation) return [pinnedLocation.lat, pinnedLocation.lng];
+    if (currentPickup) return [currentPickup.lat, currentPickup.lng];
+    return [14.0718, 120.6325];
+  }, []);
+
   return (
     <PinLocationSheet
       pinnedLocation={pinnedLocation}
@@ -103,6 +143,7 @@ function PinLocationModalContent({
       onClose={onClose}
       onRecenter={() => setRecenterSignal((n) => n + 1)}
       onConfirm={() => {
+        if (!pinnedLocation) return;
         onConfirmPin(pinnedLocation);
         onClose();
       }}
@@ -110,26 +151,33 @@ function PinLocationModalContent({
       confirmLabel={confirmLabel}
     >
       <MapContainer
-        center={[pinnedLocation.lat, pinnedLocation.lng]}
+        center={initialMapCenter}
         zoom={16}
         zoomControl={false}
         style={styles.mapContainer as any}
       >
         <TileLayer url={TILE_URL} attribution={TILE_ATTRIBUTION} />
         <ClickHandler onPick={pickPoint} />
-        <MapController target={pinnedLocation} recenterSignal={recenterSignal} />
+        <MapController
+          target={pinnedLocation}
+          otherEndpoint={currentPickup}
+          routeCoordinates={routeCoordinates}
+          recenterSignal={recenterSignal}
+        />
 
         {currentPickup && <Marker position={[currentPickup.lat, currentPickup.lng]} icon={referenceIcon} />}
-        <Marker
-          position={[pinnedLocation.lat, pinnedLocation.lng]}
-          icon={pinIcon}
-          eventHandlers={{
-            click: (e) => {
-              L.DomEvent.stopPropagation(e);
-              setRecenterSignal((n) => n + 1);
-            },
-          }}
-        />
+        {pinnedLocation && (
+          <Marker
+            position={[pinnedLocation.lat, pinnedLocation.lng]}
+            icon={pinIcon}
+            eventHandlers={{
+              click: (e) => {
+                L.DomEvent.stopPropagation(e);
+                setRecenterSignal((n) => n + 1);
+              },
+            }}
+          />
+        )}
 
         {polylinePositions.length > 0 && (
           <Polyline

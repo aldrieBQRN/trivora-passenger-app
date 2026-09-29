@@ -113,6 +113,7 @@ export default function DestinationRouteScreen({ topInset = 0 }: DestinationRout
         onClose={() => setPickerMode(null)}
         mode={pickerMode === 'pickup' ? 'pickup' : 'destination'}
         currentLocation={pickerMode === 'pickup' ? (hasDestination ? dropoff : undefined) : pickup}
+        initialLocation={pickerMode === 'pickup' ? pickup : (hasDestination ? dropoff : undefined)}
         onUseCurrentLocation={pickerMode === 'pickup' ? useCurrentLocationForPickup : undefined}
         onSelect={(loc) => {
           if (pickerMode === 'pickup') {

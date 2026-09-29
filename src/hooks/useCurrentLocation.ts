@@ -82,6 +82,23 @@ export function useCurrentLocation(): UseCurrentLocationResult {
  * only renders after the existing one-shot fetch obtained it — and never returns a guessed value:
  * null until the first real fix.
  */
+/**
+ * Stops a watchPositionAsync subscription without letting cleanup crash an unmount. On native
+ * remove() is unchanged and never throws. On web, expo-location 19.0.x's remove() first clears the
+ * browser watch (navigator.geolocation.clearWatch) and THEN calls
+ * LocationEventEmitter.removeSubscription, which the web emitter doesn't implement — that throw,
+ * during React effect cleanup, blanked the whole app when leaving Home. The watch itself is already
+ * stopped by then; only the library's final listener bookkeeping fails, and it is reused by the
+ * next watch. Safe to call twice (remove() ignores an already-removed watch).
+ */
+function removeLocationSubscription(sub: Location.LocationSubscription | null) {
+  try {
+    sub?.remove();
+  } catch (err) {
+    if (__DEV__) console.warn('[location] watch cleanup failed (expected on web with expo-location 19.0.x):', err);
+  }
+}
+
 export function useLiveLocation(enabled: boolean): CurrentLocationCoords | null {
   const [location, setLocation] = useState<CurrentLocationCoords | null>(null);
 
@@ -98,7 +115,7 @@ export function useLiveLocation(enabled: boolean): CurrentLocationCoords | null 
           { accuracy: Location.Accuracy.Balanced, distanceInterval: 3, timeInterval: 3000 },
           (pos) => setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude })
         );
-        if (cancelled) sub.remove();
+        if (cancelled) removeLocationSubscription(sub);
         else subscription = sub;
       } catch {
         // No live updates — Home keeps the last real position it already has.
@@ -107,7 +124,8 @@ export function useLiveLocation(enabled: boolean): CurrentLocationCoords | null 
 
     return () => {
       cancelled = true;
-      subscription?.remove();
+      removeLocationSubscription(subscription);
+      subscription = null;
     };
   }, [enabled]);
 

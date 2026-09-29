@@ -99,7 +99,7 @@ const styles = StyleSheet.create({
   etaText: {
     color: '#FFFFFF',
     fontSize: 9,
-    fontWeight: '800',
+    fontWeight: '700',
     letterSpacing: 0.4,
   },
 });

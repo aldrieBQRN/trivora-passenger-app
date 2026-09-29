@@ -46,13 +46,15 @@ export default function RateReviewScreen() {
         return 'Average ride';
       case 2:
         return 'Could be better';
-      default:
+      case 1:
         return 'Poor experience';
+      default:
+        return 'Tap a star to rate your ride';
     }
   };
 
   const handleSubmit = () => {
-    if (isSubmitting) return;
+    if (isSubmitting || selectedRating < 1) return;
     setIsSubmitting(true);
     finishReview();
     showToast('Thanks for your feedback — it helps keep drivers accountable.');
@@ -93,6 +95,9 @@ export default function RateReviewScreen() {
                 onPress={() => setSelectedRating(star)}
                 activeOpacity={0.7}
                 style={styles.starBtn}
+                accessibilityRole="button"
+                accessibilityLabel={`${star} star${star === 1 ? '' : 's'}`}
+                accessibilityState={{ selected: star <= selectedRating }}
               >
                 <Star
                   size={36}
@@ -140,7 +145,7 @@ export default function RateReviewScreen() {
 
       {/* Dominant Submit Review Button */}
       <View style={styles.bottomBar}>
-        <Button label="Submit Review" onPress={handleSubmit} loading={isSubmitting} />
+        <Button label="Submit Review" onPress={handleSubmit} loading={isSubmitting} disabled={selectedRating < 1} />
       </View>
     </View>
   );
@@ -249,7 +254,7 @@ const styles = StyleSheet.create({
   },
   chipTextSelected: {
     color: COLORS.primary,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   commentInput: {
     width: '100%',

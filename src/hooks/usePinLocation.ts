@@ -5,7 +5,7 @@ import { useCurrentLocation } from './useCurrentLocation';
 import { fetchRoute, reverseGeocode, RouteCoordinate, RouteSource } from '../services/routingService';
 
 interface UsePinLocationResult {
-  pinnedLocation: LocationPoint;
+  pinnedLocation: LocationPoint | null;
   matchedZone: TodaZone;
   routeCoordinates: RouteCoordinate[];
   routeSource: RouteSource;
@@ -32,26 +32,22 @@ export function usePinLocation(
   initialLocation?: LocationPoint,
   mode: 'pickup' | 'destination' = 'destination'
 ): UsePinLocationResult {
-  // Pin Pickup Location with no explicit start: the pin must begin at the user's CURRENT location
-  // (via the existing useCurrentLocation hook) — not at the destination the modal was handed as
-  // its "other endpoint", and not at a default city coordinate.
-  const isPickupStart = mode === 'pickup' && !initialLocation;
+  const isPickup = mode === 'pickup';
   const { isLocating, error: locationError, requestCurrentLocation } = useCurrentLocation();
-  const [hasFix, setHasFix] = useState(!isPickupStart);
 
-  const [pinnedLocation, setPinnedLocation] = useState<LocationPoint>(
-    initialLocation ||
-      (isPickupStart
-        ? // Placeholder only — never rendered: the caller shows a pending view until hasFix.
-          { name: 'Locating…', address: 'Locating…', lat: 0, lng: 0, category: 'Pinned' }
-        : null) || {
-      name: 'Pinned Location',
-      address: 'Nasugbu, Batangas',
-      lat: currentPickup?.lat ?? NASUGBU_CENTER.lat,
-      lng: currentPickup?.lng ?? NASUGBU_CENTER.lng,
-      category: 'Pinned',
+  const [pinnedLocation, setPinnedLocation] = useState<LocationPoint | null>(() => {
+    if (initialLocation) return initialLocation;
+    if (isPickup) {
+      return {
+        name: 'Pick-up Location',
+        address: 'Nasugbu, Batangas',
+        lat: NASUGBU_CENTER.lat,
+        lng: NASUGBU_CENTER.lng,
+        category: 'Pinned',
+      };
     }
-  );
+    return null;
+  });
 
   const [routeCoordinates, setRouteCoordinates] = useState<RouteCoordinate[]>([]);
   const [routeSource, setRouteSource] = useState<RouteSource>('fallback');
@@ -68,10 +64,9 @@ export function usePinLocation(
     mode === 'pickup' ? fetchRoute(pinned, other) : fetchRoute(other, pinned);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Populate an initial real route for the starting pin, once — only when there's an actual
-  // pickup to route from.
+  // Populate an initial real route for the starting pin if both endpoints exist
   useEffect(() => {
-    if (!currentPickup || isPickupStart) return;
+    if (!currentPickup || !pinnedLocation) return;
     routeBetween(
       { lat: currentPickup.lat, lng: currentPickup.lng },
       { lat: pinnedLocation.lat, lng: pinnedLocation.lng }
@@ -84,10 +79,6 @@ export function usePinLocation(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Resolves the real device position (recent cache if valid, else a fresh fix — see
-  // useCurrentLocation), makes it the pickup pin, and — if a destination already exists — routes
-  // pickup -> destination through the existing fetchRoute. Null (permission denied / no GPS)
-  // leaves awaitingLocation true so the user sees the existing permission/error state.
   const applyCurrentLocation = useCallback(() => {
     requestCurrentLocation().then((coords) => {
       if (!coords) return;
@@ -98,10 +89,9 @@ export function usePinLocation(
         lng: coords.lng,
         category: 'Pinned',
       });
-      setHasFix(true);
       reverseGeocode(coords).then((geo) => {
         setPinnedLocation((prev) =>
-          prev.lat === coords.lat && prev.lng === coords.lng
+          prev && prev.lat === coords.lat && prev.lng === coords.lng
             ? { ...prev, name: geo.address || prev.name, barangay: geo.barangay, address: geo.address || prev.address }
             : prev
         );
@@ -119,7 +109,7 @@ export function usePinLocation(
   }, [requestCurrentLocation, currentPickup?.lat, currentPickup?.lng, mode]);
 
   useEffect(() => {
-    if (isPickupStart) applyCurrentLocation();
+    if (isPickup && !initialLocation) applyCurrentLocation();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -197,7 +187,7 @@ export function usePinLocation(
     pickPoint,
     pickToda,
     todaList: [],
-    awaitingLocation: !hasFix,
+    awaitingLocation: false,
     isLocating,
     locationError,
     retryLocation: applyCurrentLocation,

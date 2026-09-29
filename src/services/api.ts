@@ -1,30 +1,26 @@
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
-import { DriverProfile, UserProfile, HistoryItem, SavedPlace, TodaZone } from '../types';
+import { DriverProfile, UserProfile, HistoryItem, SavedPlace, TodaZone, QrScanResult, QrQuote, QrActiveRide } from '../types';
 import { TODA_ZONES } from '../constants/todaRoutes';
 
 function getDefaultApiBaseUrl(): string {
   const envUrl = process.env.EXPO_PUBLIC_API_URL?.trim().replace(/\/+$/, '');
   const isPlaceholder = Boolean(envUrl && envUrl.includes('your-ngrok-url'));
 
+  // Explicit override from .env takes priority on all platforms (web and mobile)
+  if (envUrl && !isPlaceholder) {
+    return envUrl;
+  }
+
+  // Web fallback when EXPO_PUBLIC_API_URL is not set
   if (Platform.OS === 'web') {
     if (typeof window !== 'undefined' && window.location) {
       const hostname = window.location.hostname;
-      if (hostname === 'localhost' || hostname === '127.0.0.1') {
-        return 'http://localhost:8000/api/v1';
-      }
-      if (hostname && (!envUrl || isPlaceholder)) {
+      if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1') {
         return `http://${hostname}:8000/api/v1`;
       }
     }
-    if (envUrl && !isPlaceholder) {
-      return envUrl;
-    }
     return 'http://localhost:8000/api/v1';
-  }
-
-  if (envUrl && !isPlaceholder) {
-    return envUrl;
   }
 
   // In Expo Go on physical device, hostUri holds the development machine's LAN IP
@@ -237,6 +233,50 @@ export const passengerApi = {
   removeProfilePhoto: async () => {
     return request('/passenger/profile-photo', { method: 'DELETE' });
   },
+
+  // --- QR Ride / Scan to Ride — every rule is enforced server-side (QrRideService); these only
+  // carry the scanned token, the chosen destination/party size and the signed quote. ---
+
+  /** The scanned tricycle and whether this passenger can join it right now. */
+  qrScanTricycle: async (token: string): Promise<QrScanResult> => {
+    return request(`/passenger/qr-rides/tricycle/${encodeURIComponent(token)}`);
+  },
+
+  /** Server-computed distance + fare. The pick-up point is decided by the server (the tricycle's
+   * fresh GPS first); the passenger's location is only its fallback. */
+  qrQuote: async (
+    payload: {
+      token: string;
+      party_size: number;
+      pickup_lat: number;
+      pickup_lng: number;
+      dropoff_name: string;
+      dropoff_lat: number;
+      dropoff_lng: number;
+    },
+    options?: { signal?: AbortSignal }
+  ): Promise<QrQuote> => {
+    return request('/passenger/qr-rides/quote', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      signal: options?.signal,
+    });
+  },
+
+  /** Join with the signed quote exactly as the server returned it (retry-safe server-side). */
+  qrJoin: async (quote: string): Promise<{ message: string } & QrActiveRide> => {
+    return request('/passenger/qr-rides/join', { method: 'POST', body: JSON.stringify({ quote }) });
+  },
+
+  /** Current QR ride, or one of the passenger's own QR bookings by code (any status). */
+  qrActive: async (bookingCode?: string): Promise<{ ride: QrActiveRide | null }> => {
+    const query = bookingCode ? `?booking=${encodeURIComponent(bookingCode)}` : '';
+    return request(`/passenger/qr-rides/active${query}`);
+  },
+
+  qrLeave: async (bookingCode: string): Promise<{ message: string; ride: QrActiveRide | null }> => {
+    return request(`/passenger/qr-rides/${encodeURIComponent(bookingCode)}/leave`, { method: 'POST' });
+  },
 };
 
 /** Maps a raw saved_places row into the app's SavedPlace shape. */
@@ -333,6 +373,8 @@ export function mapBookingRecordToHistoryItem(raw: any): HistoryItem {
     driverName: driverUser.name || undefined,
     plateNumber: raw.tricycle?.plate_number || undefined,
     rating: raw.rating?.score != null ? Number(raw.rating.score) : null,
+    passengerCount: Number(raw.passenger_count ?? 1),
+    isWalkIn: raw.booking_type === 'qr_walkin',
   };
 }
 

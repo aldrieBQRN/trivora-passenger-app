@@ -306,7 +306,7 @@ const styles = StyleSheet.create({
   },
   sosBtnText: {
     ...TYPOGRAPHY.caption,
-    fontWeight: '800',
+    fontWeight: '700',
     color: COLORS.danger,
   },
 });

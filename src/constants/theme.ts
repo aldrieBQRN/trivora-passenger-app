@@ -4,13 +4,13 @@
  */
 
 export const COLORS = {
-  // Brand Indigo-Navy (#1C2B5A)
-  primary: '#1C2B5A',
-  primaryDark: '#121C3A',
-  primaryOnboarding: '#0E2140',
-  primaryHover: '#22346B',
-  primaryLight: '#4C5A85',
-  primaryTint: '#EDEEF5', // subtle cool-neutral active surface
+  // Shared Trivora brand navy (#1D2542) — same in the Passenger and Driver apps
+  primary: '#1D2542',
+  primaryDark: '#141A31',
+  primaryOnboarding: '#141A31',
+  primaryHover: '#283256',
+  primaryLight: '#4A5275',
+  primaryTint: '#EDEEF3', // subtle cool-neutral active surface
 
   // Surfaces & Backgrounds
   background: '#FFFFFF',
@@ -22,7 +22,7 @@ export const COLORS = {
   // Hairline Borders
   border: '#E2E8F0',
   borderLight: '#F1F5F9',
-  borderFocus: '#1C2B5A',
+  borderFocus: '#1D2542',
 
   // Typography
   textPrimary: '#0F172A',     // Slate 900
@@ -53,9 +53,9 @@ export const COLORS = {
   emeraldLight: '#ECFDF5',
 
   // Dark surfaces (Onboarding, in-call UI, profile banner, inverse states)
-  darkBackground: '#0D2040',
-  darkSurface: '#152B52',
-  darkSurfaceRaised: '#1E3A8A',
+  darkBackground: '#141A31',
+  darkSurface: '#1D2542',
+  darkSurfaceRaised: '#2A3358',
   darkBorder: 'rgba(255, 255, 255, 0.16)',
   darkTextPrimary: '#FFFFFF',
   darkTextSecondary: 'rgba(255, 255, 255, 0.72)',
@@ -124,32 +124,38 @@ export const BUTTONS = {
 };
 
 /**
- * Named type scale. Every screen should draw its text styles from here
- * instead of hand-rolling fontSize/fontWeight pairs, so headers, labels and
- * body copy stay the same size everywhere they mean the same thing.
+ * Named type scale. Every screen should draw its text styles from here instead of hand-rolling
+ * fontSize/fontWeight pairs.
+ *
+ * Hierarchy rules (shared by the Passenger and Driver apps):
+ * - Three weights only: 400 (reading text), 600 (titles, labels, emphasis), 700 (page titles and
+ *   the one key value on a screen). Nothing heavier — Android renders 800/900 as Roboto Black,
+ *   which made every line on a screen shout at the same volume.
+ * - Nothing below 11px; 12px+ for anything a rider/driver must read at a glance.
+ * - Emphasise the value, not its label (e.g. "₱126.00" is bigger than "Total Fare").
  */
 export const TYPOGRAPHY = {
-  display: { fontSize: 28, fontWeight: '900' as const, lineHeight: 34, letterSpacing: -0.3 },
-  h1: { fontSize: 22, fontWeight: '900' as const, lineHeight: 28, letterSpacing: -0.2 },
-  h2: { fontSize: 18, fontWeight: '800' as const, lineHeight: 24 },
-  h3: { fontSize: 16, fontWeight: '800' as const, lineHeight: 21 },
-  bodyLarge: { fontSize: 15, fontWeight: '700' as const, lineHeight: 20 },
-  body: { fontSize: 13, fontWeight: '600' as const, lineHeight: 18 },
-  bodySmall: { fontSize: 12, fontWeight: '500' as const, lineHeight: 16 },
-  caption: { fontSize: 11, fontWeight: '600' as const, lineHeight: 14 },
-  micro: { fontSize: 10, fontWeight: '700' as const, lineHeight: 13 },
+  display: { fontSize: 28, fontWeight: '700' as const, lineHeight: 34, letterSpacing: -0.4 },
+  h1: { fontSize: 22, fontWeight: '700' as const, lineHeight: 28, letterSpacing: -0.2 },
+  h2: { fontSize: 18, fontWeight: '700' as const, lineHeight: 24 },
+  h3: { fontSize: 16, fontWeight: '600' as const, lineHeight: 22 },
+  bodyLarge: { fontSize: 15, fontWeight: '600' as const, lineHeight: 21 },
+  body: { fontSize: 14, fontWeight: '400' as const, lineHeight: 20 },
+  bodySmall: { fontSize: 13, fontWeight: '400' as const, lineHeight: 18 },
+  caption: { fontSize: 12, fontWeight: '500' as const, lineHeight: 16 },
+  micro: { fontSize: 11, fontWeight: '600' as const, lineHeight: 14 },
   label: {
-    fontSize: 9,
-    fontWeight: '700' as const,
-    lineHeight: 11,
-    letterSpacing: 0.6,
+    fontSize: 11,
+    fontWeight: '600' as const,
+    lineHeight: 14,
+    letterSpacing: 0.5,
     textTransform: 'uppercase' as const,
   },
 };
 
 /** Named accent colors for place/category iconography (destination picker, etc). */
 export const CATEGORY_COLORS = {
-  government: '#1B3A69',
+  government: '#1D2542',
   market: '#D97706',
   hospital: '#EF4444',
   harbor: '#0284C7',

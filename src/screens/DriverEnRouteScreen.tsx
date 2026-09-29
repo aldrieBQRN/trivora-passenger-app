@@ -9,6 +9,7 @@ import RideProgressStepper from '../components/RideProgressStepper';
 import ConfirmModal from '../components/ConfirmModal';
 import { useToast } from '../components/Toast';
 import { callPhoneNumber, messagePhoneNumber } from '../utils/deviceContact';
+import { shareTripDetails } from '../utils/shareTrip';
 
 interface DriverEnRouteScreenProps {
   topInset?: number;
@@ -21,6 +22,7 @@ export default function DriverEnRouteScreen({ topInset = 0 }: DriverEnRouteScree
     cancelBooking,
     activeDriver,
     pickup,
+    dropoff,
     matchedToda,
     driverDistanceKm,
     driverEtaMinutes,
@@ -56,8 +58,19 @@ export default function DriverEnRouteScreen({ topInset = 0 }: DriverEnRouteScree
     return () => clearTimeout(timer);
   }, []);
 
-  const handleShareTrip = () => {
-    showToast('Live ride link copied — share with family or emergency contacts.', 'info');
+  // Real native share sheet with the details the app actually has — no fake link.
+  const handleShareTrip = async () => {
+    const result = await shareTripDetails({
+      driverName: activeDriver.name,
+      plateNumber: activeDriver.tricycle?.plateNumber,
+      unitNumber: activeDriver.tricycle?.codingNumber,
+      todaName: activeDriver.todaName,
+      pickup: pickup.name,
+      destination: dropoff.name,
+      status: hasArrived ? 'Status: Driver has arrived at the pick-up point' : `Status: Driver on the way, about ${driverEtaMinutes} min away`,
+    });
+    if (result === 'copied') showToast('Trip details copied — paste them to share.', 'info');
+    else if (result === 'unavailable') showToast("Sharing isn't available on this device.", 'info');
   };
 
   const hasDriverPhone = !!activeDriver.mobile?.trim();
@@ -141,7 +154,7 @@ export default function DriverEnRouteScreen({ topInset = 0 }: DriverEnRouteScree
               <Text style={styles.ratingText}>{activeDriver.rating}</Text>
               <Text style={styles.tripsText}>· {activeDriver.trips} rides</Text>
             </View>
-            <Text style={styles.todaName}>{activeDriver.todaName || 'TODA Bucana'}</Text>
+            {!!activeDriver.todaName && <Text style={styles.todaName}>{activeDriver.todaName}</Text>}
           </View>
 
           <View style={styles.vehicleCol}>
@@ -330,7 +343,7 @@ const styles = StyleSheet.create({
   },
   plateText: {
     ...TYPOGRAPHY.caption,
-    fontWeight: '800',
+    fontWeight: '700',
     color: COLORS.textPrimary,
     letterSpacing: 0.5,
   },
@@ -356,7 +369,7 @@ const styles = StyleSheet.create({
   },
   etaMinutes: {
     ...TYPOGRAPHY.body,
-    fontWeight: '800',
+    fontWeight: '700',
     color: COLORS.primary,
   },
   actionsRow: {

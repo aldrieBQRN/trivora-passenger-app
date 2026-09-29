@@ -9,7 +9,7 @@ export type RouteSource = 'osrm' | 'fallback';
 
 /**
  * Single canonical prop contract for the map, shared by the web (Leaflet)
- * and native (react-native-maps) implementations. The map is presentational
+ * and native (MapLibre) implementations. The map is presentational
  * only — it draws whatever route/markers it's given; fetching real routes
  * lives in BookingContext so screens share one fetch instead of each map
  * instance re-requesting the same data.

@@ -86,12 +86,12 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
   },
   label: {
-    fontSize: 10,
+    fontSize: 11,
     color: COLORS.textSecondary,
     fontWeight: '500',
   },
   labelActive: {
     color: COLORS.primary,
-    fontWeight: '800',
+    fontWeight: '700',
   },
 });

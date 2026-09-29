@@ -78,7 +78,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
 
   // Onboarding's last slide is a dark full-bleed photo; this screen is plain white — the
   // biggest color jump in the whole Splash->Onboarding->Login flow. A quick fade-in (same
-  // technique as SplashScreen) softens that handoff instead of an instant white pop.
+  // fade-in technique) softens that handoff instead of an instant white pop.
   const fade = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.timing(fade, { toValue: 1, duration: 300, useNativeDriver: true }).start();
@@ -621,7 +621,7 @@ const styles = StyleSheet.create({
   },
   termsLink: {
     color: COLORS.primary,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   ctaSpacing: {
     marginTop: SPACING.sm,
@@ -638,7 +638,7 @@ const styles = StyleSheet.create({
   },
   registerLink: {
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: '700',
     color: COLORS.primary,
   },
 });

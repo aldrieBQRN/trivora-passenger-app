@@ -52,7 +52,7 @@ const styles = StyleSheet.create({
   },
   title: {
     flex: 1,
-    ...TYPOGRAPHY.h3,
+    ...TYPOGRAPHY.h2,
     color: COLORS.textPrimary,
   },
 });

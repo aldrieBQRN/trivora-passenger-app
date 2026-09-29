@@ -15,6 +15,7 @@ import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { BookingProvider, useBooking } from './src/context/BookingContext';
 import { SavedPlacesProvider } from './src/context/SavedPlacesContext';
 import { NetworkProvider } from './src/context/NetworkContext';
+import { QrRideProvider, useQrRide } from './src/context/QrRideContext';
 import { ToastProvider } from './src/components/Toast';
 import OfflineBanner from './src/components/OfflineBanner';
 import { COLORS, RADIUS, SPACING } from './src/constants/theme';
@@ -22,7 +23,6 @@ import { COLORS, RADIUS, SPACING } from './src/constants/theme';
 const ONBOARDING_STORAGE_KEY = '@trivora_passenger_onboarding_done';
 
 // 12 Specification Screens
-import SplashScreen from './src/screens/SplashScreen';
 import OnboardingScreen from './src/screens/OnboardingScreen';
 import AuthScreen from './src/screens/AuthScreen';
 import HomeScreen from './src/screens/HomeScreen';
@@ -35,6 +35,9 @@ import TripCompletedScreen from './src/screens/TripCompletedScreen';
 import RateReviewScreen from './src/screens/RateReviewScreen';
 import HistoryScreen from './src/screens/HistoryScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
+import QrScanScreen from './src/screens/QrScanScreen';
+import QrRideSetupScreen from './src/screens/QrRideSetupScreen';
+import QrRideScreen from './src/screens/QrRideScreen';
 
 import { Home, Receipt, User, LucideIcon } from 'lucide-react-native';
 
@@ -71,8 +74,8 @@ function TabButton({ label, icon: Icon, isActive, onPress }: TabButtonProps) {
 function PassengerAppNavigator() {
   const { isAuthenticated, isRestoring, login } = useAuth();
   const { screenState, setScreenState } = useBooking();
+  const { stage: qrStage } = useQrRide();
 
-  const [showSplash, setShowSplash] = useState(true);
   const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>('home');
 
@@ -119,11 +122,12 @@ function PassengerAppNavigator() {
 
   // Render current view
   const renderCurrentScreen = () => {
-    // Screen 0: Splash — a brief brand-only beat before onboarding. Also held open while a
-    // previous session is still being restored (app relaunch, reloaded web tab) so a returning,
-    // already-logged-in passenger never flashes through onboarding/login on the way back in.
-    if (showSplash || isRestoring) {
-      return <SplashScreen onFinish={() => setShowSplash(false)} />;
+    // The native splash (app.json) is the ONLY splash — no second in-app brand screen. While a
+    // previous session is still being restored, hold a blank frame in the splash's own
+    // background colour so the handoff is seamless and a returning, already-logged-in passenger
+    // never flashes through onboarding/login on the way back in.
+    if (isRestoring) {
+      return <View style={{ flex: 1, backgroundColor: '#FFFFFF' }} />;
     }
 
     // Screen 1: Onboarding — skipped for a session that was just restored, since a returning
@@ -147,6 +151,17 @@ function PassengerAppNavigator() {
           }}
         />
       );
+    }
+
+    // Scan to Ride (QR walk-in ride) — its own flow, alongside the normal booking flow below.
+    if (qrStage === 'scan') {
+      return <QrScanScreen topInset={safeTop} />;
+    }
+    if (qrStage === 'setup') {
+      return <QrRideSetupScreen />;
+    }
+    if (qrStage === 'ride') {
+      return <QrRideScreen topInset={safeTop} />;
     }
 
     // Active Booking Flow Screens (Screens 4 to 10)
@@ -213,7 +228,7 @@ function PassengerAppNavigator() {
     Platform.OS === 'ios' ? 24 : (Platform.OS === 'android' ? 16 : 0)
   );
 
-  const isTabVisible = isAuthenticated && screenState === 'home';
+  const isTabVisible = isAuthenticated && screenState === 'home' && qrStage === 'idle';
 
   // Every full-bleed map screen (Home plus the map-based booking-flow
   // screens) manages its own top inset internally via the topInset prop
@@ -223,13 +238,14 @@ function PassengerAppNavigator() {
     (isTabVisible && activeTab === 'home') ||
     screenState === 'destination_select' ||
     screenState === 'driver_en_route' ||
-    screenState === 'in_transit';
+    screenState === 'in_transit' ||
+    (isAuthenticated && (qrStage === 'scan' || qrStage === 'ride'));
 
   // Splash and Onboarding are also full-bleed (a navy brand screen and full-screen hero photos),
   // and both already handle their own safe-area insets internally — without this, the outer
   // wrapper's safe-area padding left a visible band of the root background above and below them,
   // breaking the "photo fills the entire screen" effect.
-  const isSplashOrOnboarding = showSplash || isRestoring || (!hasCompletedOnboarding && !isAuthenticated);
+  const isSplashOrOnboarding = isRestoring || (!hasCompletedOnboarding && !isAuthenticated);
 
   return (
     <View
@@ -238,7 +254,7 @@ function PassengerAppNavigator() {
         { paddingTop: isFullBleedMapScreen || isSplashOrOnboarding ? 0 : safeTop },
       ]}
     >
-      <StatusBar style={isSplashOrOnboarding ? 'light' : 'dark'} backgroundColor={COLORS.background} />
+      <StatusBar style={isSplashOrOnboarding || (isAuthenticated && qrStage === 'scan') ? 'light' : 'dark'} backgroundColor={COLORS.background} />
       <OfflineBanner />
       <View style={styles.container}>
         {/* Screen Viewport */}
@@ -294,7 +310,9 @@ export default function App() {
           <AuthProvider>
             <SavedPlacesProvider>
               <BookingProvider>
-                <PassengerAppNavigator />
+                <QrRideProvider>
+                  <PassengerAppNavigator />
+                </QrRideProvider>
               </BookingProvider>
             </SavedPlacesProvider>
           </AuthProvider>
@@ -347,12 +365,12 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
   },
   tabLabel: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '600',
     color: COLORS.textMuted,
   },
   tabLabelActive: {
     color: COLORS.primary,
-    fontWeight: '800',
+    fontWeight: '700',
   },
 });

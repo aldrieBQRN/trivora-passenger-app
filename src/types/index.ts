@@ -122,6 +122,8 @@ export interface HistoryItem {
   rating?: number | null;
   /** Optional so existing hardcoded demo entries stay valid — real entries always carry this. */
   passengerCount?: number;
+  /** True for a QR Ride / walk-in trip (booking_type = qr_walkin). */
+  isWalkIn?: boolean;
 }
 
 export interface UserProfile {
@@ -168,4 +170,85 @@ export interface TripReceipt {
   codingNumber: string;
   todaName?: string;
   mtopNumber: string;
+}
+
+// ---------------------------------------------------------------------------------------------
+// QR Ride / Scan to Ride — shapes returned by /passenger/qr-rides/* (server-authoritative; the
+// app only displays them). No QR token, database ids (except the passenger's own booking_id, used
+// for rating) or driver contact details are ever part of these payloads.
+// ---------------------------------------------------------------------------------------------
+
+export interface QrTricycleInfo {
+  plate_number: string;
+  sticker_number: string | null;
+  make: string | null;
+  model: string | null;
+  body_color: string | null;
+}
+
+export type QrRideState = 'available' | 'boarding' | 'in_progress' | 'completed' | 'cancelled';
+
+export interface QrScanResult {
+  tricycle: QrTricycleInfo;
+  ride: {
+    state: QrRideState;
+    passenger_capacity: number | null;
+    seats_used: number;
+    seats_available: number | null;
+    can_join: boolean;
+    reason: string | null;
+    reason_message: string | null;
+    your_booking_code: string | null;
+  };
+  gps: { last_updated_at: string | null; is_fresh: boolean };
+}
+
+export interface QrQuote {
+  quote: string;
+  expires_at: string;
+  party_size: number;
+  pickup_name: string;
+  pickup: { lat: number; lng: number; source: 'tricycle_gps' | 'passenger_gps' };
+  dropoff_name: string;
+  distance_km: number;
+  distance_source: 'osrm' | 'fallback';
+  estimated_duration_mins: number;
+  fare_per_passenger: number;
+  fare_amount: number;
+}
+
+export interface QrBooking {
+  booking_code: string;
+  booking_id?: number;
+  status: 'accepted' | 'in_transit' | 'completed' | 'cancelled';
+  party_size: number;
+  pickup: { name: string; lat: number; lng: number };
+  dropoff: { name: string; lat: number; lng: number };
+  distance_km: number;
+  distance_source: 'osrm' | 'fallback' | null;
+  estimated_duration_mins: number;
+  fare_per_passenger: number;
+  fare_amount: number;
+  payment_method: string;
+  payment_status: string;
+  joined_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  cancelled_at: string | null;
+  cancelled_by: 'passenger' | 'driver' | 'system' | null;
+}
+
+export interface QrActiveRide {
+  booking: QrBooking;
+  session: { session_code: string; status: QrRideState; started_at: string | null; ended_at: string | null } | null;
+  tricycle: QrTricycleInfo | null;
+  /** Public driver details (first name, photo, rating) — used on the Rate screen. */
+  driver?: { first_name: string | null; profile_photo_url: string | null; rating: number | null } | null;
+  driver_location: {
+    lat: number;
+    lng: number;
+    heading_deg: number | null;
+    last_updated_at: string | null;
+    is_fresh: boolean;
+  } | null;
 }

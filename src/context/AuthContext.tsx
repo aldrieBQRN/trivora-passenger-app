@@ -56,12 +56,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
-    passengerApi.logout().catch(() => {});
+    const prevToken = tokenRef.current;
     setUser(null);
     setIsAuthenticated(false);
     tokenRef.current = null;
     setAuthToken(null);
     AsyncStorage.removeItem(SESSION_STORAGE_KEY).catch(() => {});
+    if (prevToken) {
+      passengerApi.logout().catch(() => {});
+    }
   };
 
   const updateProfile = (fields: Partial<UserProfile>) => {

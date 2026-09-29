@@ -11,7 +11,7 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
 } from 'react-native';
-import { COLORS, RADIUS, SHADOWS, SPACING, CATEGORY_COLORS, TYPOGRAPHY } from '../constants/theme';
+import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '../constants/theme';
 import { POPULAR_DESTINATIONS, calculateDistance } from '../constants/todaRoutes';
 import { searchPlaces, PlaceSearchResult } from '../services/routingService';
 import { useSavedPlaces } from '../context/SavedPlacesContext';
@@ -55,12 +55,13 @@ interface DestinationPickerModalProps {
   visible: boolean;
   onClose: () => void;
   onSelect: (location: LocationPoint) => void;
-  /** 'destination' (default) shows Saved/Suggested places alongside search — Saved Places are
-   * destination shortcuts only. 'pickup' shows only Search, Use Current Location, and Pin on
-   * Map, matching the Change Pick-up flow. */
   mode?: 'pickup' | 'destination';
   currentLocation?: LocationPoint;
+  initialLocation?: LocationPoint;
   onUseCurrentLocation?: () => void;
+  /** Which places tab is shown when the sheet opens (destination mode) — e.g. Home's "More"
+   * shortcut opens straight onto Saved Places. */
+  initialPlacesTab?: PlacesTab;
 }
 
 export default function DestinationPickerModal({
@@ -69,7 +70,9 @@ export default function DestinationPickerModal({
   onSelect,
   mode = 'destination',
   currentLocation,
+  initialLocation,
   onUseCurrentLocation,
+  initialPlacesTab = 'suggested',
 }: DestinationPickerModalProps) {
   const isPickup = mode === 'pickup';
   const { savedPlaces } = useSavedPlaces();
@@ -117,29 +120,32 @@ export default function DestinationPickerModal({
   useEffect(() => {
     if (visible) {
       setSearchQuery('');
-      setPlacesTab('suggested');
+      setPlacesTab(initialPlacesTab);
       setShowSavedPlacesOverlay(false);
     }
-  }, [visible]);
+  }, [visible, initialPlacesTab]);
 
   const isSaved = !isPickup && placesTab === 'saved';
 
+  // One restrained icon colour for every category — the icon's shape tells the category apart,
+  // not six unrelated hues competing with the brand and the semantic status colours.
   const getPlaceIcon = (place: LocationPoint) => {
+    const iconProps = { size: 17, color: COLORS.primary };
     switch (place.category) {
       case 'Government':
-        return <Building2 size={16} color={CATEGORY_COLORS.government} />;
+        return <Building2 {...iconProps} />;
       case 'Market':
-        return <ShoppingBag size={16} color={CATEGORY_COLORS.market} />;
+        return <ShoppingBag {...iconProps} />;
       case 'Hospital':
-        return <Hospital size={16} color={CATEGORY_COLORS.hospital} />;
+        return <Hospital {...iconProps} />;
       case 'Harbor':
-        return <Anchor size={16} color={CATEGORY_COLORS.harbor} />;
+        return <Anchor {...iconProps} />;
       case 'School':
-        return <School size={16} color={CATEGORY_COLORS.school} />;
+        return <School {...iconProps} />;
       case 'Leisure':
-        return <TreePine size={16} color={CATEGORY_COLORS.leisure} />;
+        return <TreePine {...iconProps} />;
       default:
-        return <MapPin size={16} color={COLORS.primary} />;
+        return <MapPin {...iconProps} />;
     }
   };
 
@@ -167,21 +173,10 @@ export default function DestinationPickerModal({
           {/* Header */}
           <View style={styles.sheetHeader}>
             <Text style={styles.sheetTitle}>{title}</Text>
-            <TouchableOpacity style={styles.closeBtn} onPress={onClose} activeOpacity={0.7}>
+            <TouchableOpacity style={styles.closeBtn} onPress={onClose} activeOpacity={0.7} accessibilityLabel="Close">
               <X size={20} color={COLORS.textPrimary} />
             </TouchableOpacity>
           </View>
-
-          {/* Saved vs Suggested — destination only; Saved Places are destination shortcuts. */}
-          {!isPickup && (
-            <View style={styles.placesTabRow}>
-              <FilterTabs
-                options={PLACES_TAB_OPTIONS}
-                value={placesTab}
-                onChange={(key) => setPlacesTab(key as PlacesTab)}
-              />
-            </View>
-          )}
 
           {/* Search Input Box */}
           <View style={styles.searchBar}>
@@ -196,7 +191,12 @@ export default function DestinationPickerModal({
               returnKeyType="search"
             />
             {searchQuery.length > 0 && (
-              <TouchableOpacity onPress={() => setSearchQuery('')} activeOpacity={0.7}>
+              <TouchableOpacity
+                onPress={() => setSearchQuery('')}
+                activeOpacity={0.7}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                accessibilityLabel="Clear search"
+              >
                 <X size={16} color={COLORS.textSecondary} />
               </TouchableOpacity>
             )}
@@ -218,20 +218,33 @@ export default function DestinationPickerModal({
 
           {!isSearchMode && (
             <TouchableOpacity
-              style={styles.pinOnMapCard}
+              style={styles.pinOnMapRow}
               onPress={() => setShowPinModal(true)}
-              activeOpacity={0.8}
+              activeOpacity={0.7}
+              accessibilityRole="button"
             >
-              <View style={styles.pinIconCircle}>
-                <MapPin size={18} color="#FFFFFF" />
+              <View style={styles.pinIconBox}>
+                <MapPin size={18} color={COLORS.primary} />
               </View>
               <View style={styles.pinTextCol}>
-                <Text style={styles.pinCardTitle}>Pin Location on Map</Text>
-                <Text style={styles.pinCardSub}>Tap anywhere on Nasugbu streets to set exact point</Text>
+                <Text style={styles.pinRowTitle}>Pin location on map</Text>
+                <Text style={styles.pinRowSub}>Set an exact point on Nasugbu streets</Text>
               </View>
-              <ChevronRight size={18} color={COLORS.textSecondary} />
+              <ChevronRight size={18} color={COLORS.textMuted} />
             </TouchableOpacity>
           )}
+
+          {/* Saved vs Suggested — destination only; Saved Places are destination shortcuts. */}
+          {!isPickup && !isSearchMode && (
+            <View style={styles.placesTabRow}>
+              <FilterTabs
+                options={PLACES_TAB_OPTIONS}
+                value={placesTab}
+                onChange={(key) => setPlacesTab(key as PlacesTab)}
+              />
+            </View>
+          )}
+
 
           {isSearchMode ? (
             <>
@@ -272,102 +285,100 @@ export default function DestinationPickerModal({
               )}
             </>
           ) : (
-            !isPickup && (
-              <>
-                <View style={styles.sectionHeaderRow}>
-                  <Text style={[styles.listSectionLabel, styles.sectionHeaderLabel]}>
-                    {isSaved ? 'Your Saved Places' : 'Suggested Places'}
-                  </Text>
-                  {isSaved && savedPlaces.length > 0 && (
-                    <TouchableOpacity style={styles.seeAllBtn} onPress={handleSeeAllSavedPlaces} activeOpacity={0.7}>
-                      <Text style={styles.seeAllBtnText}>See All</Text>
-                      <ChevronRight size={14} color={COLORS.primary} />
+            <>
+              <View style={styles.sectionHeaderRow}>
+                <Text style={[styles.listSectionLabel, styles.sectionHeaderLabel]}>
+                  {isPickup ? 'Suggested Pick-up Points' : isSaved ? 'Your Saved Places' : 'Suggested Places'}
+                </Text>
+                {!isPickup && isSaved && savedPlaces.length > 0 && (
+                  <TouchableOpacity style={styles.seeAllBtn} onPress={handleSeeAllSavedPlaces} activeOpacity={0.7}>
+                    <Text style={styles.seeAllBtnText}>See All</Text>
+                    <ChevronRight size={14} color={COLORS.primary} />
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {!isPickup && isSaved ? (
+                <FlatList
+                  data={savedPlaces}
+                  keyExtractor={(item) => String(item.id)}
+                  contentContainerStyle={styles.listContent}
+                  keyboardShouldPersistTaps="handled"
+                  ListEmptyComponent={
+                    <View style={styles.searchStatusBox}>
+                      <Text style={styles.emptyText}>Save places you visit often for faster booking.</Text>
+                      <TouchableOpacity style={styles.emptyAddBtn} onPress={handleSeeAllSavedPlaces} activeOpacity={0.8}>
+                        <Text style={styles.emptyAddBtnText}>Manage Saved Places</Text>
+                        <ChevronRight size={14} color="#FFFFFF" />
+                      </TouchableOpacity>
+                    </View>
+                  }
+                  renderItem={({ item: place }) => (
+                    <TouchableOpacity
+                      style={styles.placeItem}
+                      onPress={() => {
+                        onSelect({ name: place.label, address: place.address, lat: place.lat, lng: place.lng, category: 'Saved' });
+                        onClose();
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.placeIconBox}>
+                        {React.createElement(SAVED_PLACE_ICONS[place.label] || Bookmark, {
+                          size: 16,
+                          color: COLORS.primary,
+                        })}
+                      </View>
+
+                      <View style={styles.placeInfoCol}>
+                        <Text style={styles.placeName}>{place.label}</Text>
+                        <Text style={styles.placeAddress} numberOfLines={1}>{place.address}</Text>
+                      </View>
+
+                      <ChevronRight size={18} color={COLORS.textMuted} />
                     </TouchableOpacity>
                   )}
-                </View>
+                />
+              ) : (
+                <FlatList
+                  data={POPULAR_DESTINATIONS}
+                  keyExtractor={(item) => item.name}
+                  contentContainerStyle={styles.listContent}
+                  keyboardShouldPersistTaps="handled"
+                  renderItem={({ item: place }) => {
+                    const dist = currentLocation ? calculateDistance(currentLocation, place) : null;
 
-                {isSaved ? (
-                  <FlatList
-                    data={savedPlaces}
-                    keyExtractor={(item) => String(item.id)}
-                    contentContainerStyle={styles.listContent}
-                    keyboardShouldPersistTaps="handled"
-                    ListEmptyComponent={
-                      <View style={styles.searchStatusBox}>
-                        <Text style={styles.emptyText}>Save places you visit often for faster booking.</Text>
-                        <TouchableOpacity style={styles.emptyAddBtn} onPress={handleSeeAllSavedPlaces} activeOpacity={0.8}>
-                          <Text style={styles.emptyAddBtnText}>Manage Saved Places</Text>
-                          <ChevronRight size={14} color="#FFFFFF" />
-                        </TouchableOpacity>
-                      </View>
-                    }
-                    renderItem={({ item: place }) => (
+                    return (
                       <TouchableOpacity
                         style={styles.placeItem}
                         onPress={() => {
-                          onSelect({ name: place.label, address: place.address, lat: place.lat, lng: place.lng, category: 'Saved' });
+                          onSelect(place);
                           onClose();
                         }}
                         activeOpacity={0.7}
                       >
-                        <View style={styles.placeIconBox}>
-                          {React.createElement(SAVED_PLACE_ICONS[place.label] || Bookmark, {
-                            size: 16,
-                            color: COLORS.primary,
-                          })}
-                        </View>
+                        <View style={styles.placeIconBox}>{getPlaceIcon(place)}</View>
 
                         <View style={styles.placeInfoCol}>
-                          <Text style={styles.placeName}>{place.label}</Text>
-                          <Text style={styles.placeAddress} numberOfLines={1}>{place.address}</Text>
+                          <Text style={styles.placeName}>{place.name}</Text>
+                          <Text style={styles.placeAddress} numberOfLines={1}>
+                            {place.address || 'Nasugbu, Batangas'}
+                          </Text>
                         </View>
 
-                        <ChevronRight size={18} color={COLORS.textMuted} />
+                        <View style={styles.placeMetaCol}>
+                          {dist != null && <Text style={styles.placeDistance}>{dist} km</Text>}
+                          {place.zoneCode && (
+                            <View style={styles.zoneBadge}>
+                              <Text style={styles.zoneBadgeText}>{place.zoneCode.replace('TODA-', '')}</Text>
+                            </View>
+                          )}
+                        </View>
                       </TouchableOpacity>
-                    )}
-                  />
-                ) : (
-                  <FlatList
-                    data={POPULAR_DESTINATIONS}
-                    keyExtractor={(item) => item.name}
-                    contentContainerStyle={styles.listContent}
-                    keyboardShouldPersistTaps="handled"
-                    renderItem={({ item: place }) => {
-                      const dist = currentLocation ? calculateDistance(currentLocation, place) : 1.5;
-
-                      return (
-                        <TouchableOpacity
-                          style={styles.placeItem}
-                          onPress={() => {
-                            onSelect(place);
-                            onClose();
-                          }}
-                          activeOpacity={0.7}
-                        >
-                          <View style={styles.placeIconBox}>{getPlaceIcon(place)}</View>
-
-                          <View style={styles.placeInfoCol}>
-                            <Text style={styles.placeName}>{place.name}</Text>
-                            <Text style={styles.placeAddress} numberOfLines={1}>
-                              {place.address || 'Nasugbu, Batangas'}
-                            </Text>
-                          </View>
-
-                          <View style={styles.placeMetaCol}>
-                            <Text style={styles.placeDistance}>{dist} km</Text>
-                            {place.zoneCode && (
-                              <View style={styles.zoneBadge}>
-                                <Text style={styles.zoneBadgeText}>{place.zoneCode.replace('TODA-', '')}</Text>
-                              </View>
-                            )}
-                          </View>
-                        </TouchableOpacity>
-                      );
-                    }}
-                  />
-                )}
-              </>
-            )
+                    );
+                  }}
+                />
+              )}
+            </>
           )}
         </View>
 
@@ -376,6 +387,7 @@ export default function DestinationPickerModal({
           visible={showPinModal}
           onClose={() => setShowPinModal(false)}
           currentPickup={currentLocation}
+          initialLocation={initialLocation}
           mode={mode}
           onConfirmPin={(loc) => {
             setShowPinModal(false);
@@ -426,13 +438,13 @@ const styles = StyleSheet.create({
     borderBottomColor: COLORS.borderLight,
   },
   sheetTitle: {
-    ...TYPOGRAPHY.h3,
+    ...TYPOGRAPHY.h2,
     color: COLORS.textPrimary,
   },
   closeBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: COLORS.backgroundSubtle,
     alignItems: 'center',
     justifyContent: 'center',
@@ -445,23 +457,23 @@ const styles = StyleSheet.create({
     marginHorizontal: SPACING.lg,
     marginTop: SPACING.md,
     paddingHorizontal: SPACING.md,
-    height: 48,
+    height: 52,
     gap: 10,
     borderWidth: 1,
     borderColor: COLORS.border,
   },
   searchInput: {
     flex: 1,
-    fontSize: 14,
+    ...TYPOGRAPHY.body,
+    fontSize: 15,
     color: COLORS.textPrimary,
-    fontWeight: '600',
   },
   placesTabRow: {
     // FilterTabs already bakes in SPACING.md (16) of its own horizontal padding; adding just
     // the SPACING.sm (8) difference here brings the tab track's total inset to SPACING.lg (24),
     // matching the search bar and other rows below it exactly instead of over- or under-shooting.
     paddingHorizontal: SPACING.sm,
-    paddingTop: SPACING.md,
+    paddingTop: SPACING.sm,
   },
   listSectionLabel: {
     ...TYPOGRAPHY.label,
@@ -488,7 +500,7 @@ const styles = StyleSheet.create({
   },
   seeAllBtnText: {
     ...TYPOGRAPHY.caption,
-    fontWeight: '800',
+    fontWeight: '700',
     color: COLORS.primary,
   },
   currentLocationRow: {
@@ -514,44 +526,39 @@ const styles = StyleSheet.create({
   },
   currentLocationText: {
     flex: 1,
-    fontSize: 13,
-    fontWeight: '800',
+    ...TYPOGRAPHY.body,
+    fontWeight: '600',
     color: COLORS.primary,
   },
-  pinOnMapCard: {
+  pinOnMapRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.dangerLight,
-    borderWidth: 1.5,
-    borderColor: COLORS.dangerBorder,
     marginHorizontal: SPACING.lg,
-    marginTop: SPACING.sm,
-    marginBottom: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: RADIUS.lg,
+    marginTop: SPACING.xs,
+    paddingVertical: 12,
     gap: 12,
-    ...SHADOWS.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.borderLight,
   },
-  pinIconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: COLORS.danger,
+  pinIconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: RADIUS.md,
+    backgroundColor: COLORS.primaryTint,
     alignItems: 'center',
     justifyContent: 'center',
   },
   pinTextCol: {
     flex: 1,
   },
-  pinCardTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: COLORS.dangerDarker,
+  pinRowTitle: {
+    ...TYPOGRAPHY.body,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
   },
-  pinCardSub: {
-    fontSize: 11,
-    color: COLORS.dangerDark,
+  pinRowSub: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
     marginTop: 1,
   },
   listContent: {
@@ -580,22 +587,23 @@ const styles = StyleSheet.create({
   },
   emptyAddBtnText: {
     ...TYPOGRAPHY.caption,
-    fontWeight: '800',
+    fontWeight: '700',
     color: '#FFFFFF',
   },
   placeItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    minHeight: 60,
+    paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.borderLight,
     gap: 12,
   },
   placeIconBox: {
-    width: 38,
-    height: 38,
+    width: 40,
+    height: 40,
     borderRadius: RADIUS.md,
-    backgroundColor: COLORS.backgroundSubtle,
+    backgroundColor: COLORS.primaryTint,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -603,23 +611,23 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   placeName: {
-    fontSize: 13,
-    fontWeight: '700',
+    ...TYPOGRAPHY.body,
+    fontWeight: '600',
     color: COLORS.textPrimary,
   },
   placeAddress: {
-    fontSize: 11,
+    ...TYPOGRAPHY.caption,
     color: COLORS.textSecondary,
-    marginTop: 2,
+    marginTop: 1,
   },
   placeMetaCol: {
     alignItems: 'flex-end',
     gap: 3,
   },
   placeDistance: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: COLORS.primary,
+    ...TYPOGRAPHY.caption,
+    fontWeight: '600',
+    color: COLORS.textSecondary,
   },
   zoneBadge: {
     backgroundColor: COLORS.primaryTint,
@@ -628,8 +636,7 @@ const styles = StyleSheet.create({
     borderRadius: RADIUS.xs,
   },
   zoneBadgeText: {
-    fontSize: 9,
-    fontWeight: '700',
+    ...TYPOGRAPHY.micro,
     color: COLORS.primary,
   },
 });
