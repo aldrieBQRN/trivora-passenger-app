@@ -263,9 +263,12 @@ export const passengerApi = {
     });
   },
 
-  /** Join with the signed quote exactly as the server returned it (retry-safe server-side). */
-  qrJoin: async (quote: string): Promise<{ message: string } & QrActiveRide> => {
-    return request('/passenger/qr-rides/join', { method: 'POST', body: JSON.stringify({ quote }) });
+  /** Join with the signed quote and payment method (retry-safe server-side). */
+  qrJoin: async (quote: string, paymentMethod: string = 'cash'): Promise<{ message: string } & QrActiveRide> => {
+    return request('/passenger/qr-rides/join', {
+      method: 'POST',
+      body: JSON.stringify({ quote, payment_method: paymentMethod }),
+    });
   },
 
   /** Current QR ride, or one of the passenger's own QR bookings by code (any status). */

@@ -1,154 +1,211 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Animated, View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '../constants/theme';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '../constants/theme';
 import { useBooking } from '../context/BookingContext';
-import { Check, Receipt } from 'lucide-react-native';
+import { Check, MapPin, Receipt, Home, Star, Clock } from 'lucide-react-native';
 import TripReceiptModal from '../components/TripReceiptModal';
 import Button from '../components/Button';
-import RouteSummaryStrip from '../components/RouteSummaryStrip';
 
+/**
+ * End of a booked ride, in two states driven by the backend payment status (BookingContext keeps
+ * polling the booking until it is paid):
+ *  - Reached destination: payment pending — the passenger pays the driver (cash, or GCash via the
+ *    QR on the DRIVER's app) and waits; no Home/Rate yet.
+ *  - Payment Successful: once the driver confirms — fare, method, Paid, then [Home] [Rate Driver].
+ */
 export default function TripCompletedScreen() {
-  const { setScreenState, resetToHome, pickup, dropoff, fareEstimate, paymentMethod, latestReceipt } =
-    useBooking();
+  const {
+    setScreenState,
+    resetToHome,
+    dropoff,
+    fareEstimate,
+    paymentMethod,
+    latestReceipt,
+    paymentStatus,
+  } = useBooking();
   const [showReceiptModal, setShowReceiptModal] = useState(false);
 
-  const checkScale = useRef(new Animated.Value(0.4)).current;
-  useEffect(() => {
-    Animated.spring(checkScale, { toValue: 1, useNativeDriver: true, friction: 5, tension: 60 }).start();
-  }, [checkScale]);
+  const isPaid = paymentStatus === 'paid';
+  // Server figures from the completed booking (receipt), falling back to the booked quote.
+  const fare = latestReceipt?.totalFare ?? fareEstimate.total;
+  const distanceKm = latestReceipt?.distanceKm ?? fareEstimate.distanceKm;
+  const farePerPassenger = latestReceipt?.farePerPassenger ?? fareEstimate.perPassengerFare;
+  const passengerCount = latestReceipt?.passengerCount ?? fareEstimate.passengerCount;
+  const methodLabel = paymentMethod === 'gcash' ? 'GCash' : 'Cash';
+
+  if (isPaid) {
+    return (
+      <View style={styles.container}>
+        <ScrollView contentContainerStyle={styles.scrollContent}>
+          <View style={[styles.iconCircle, styles.iconCirclePaid]}>
+            <Check size={34} color={COLORS.textInverse} strokeWidth={3} />
+          </View>
+          <Text style={styles.title}>Payment Successful</Text>
+          <Text style={styles.subtitle}>Your trip to {dropoff.name} is complete.</Text>
+
+          <View style={styles.summary}>
+            <SummaryRow label="Fare" value={`₱${fare.toFixed(2)}`} strong />
+            <SummaryRow label="Payment Method" value={methodLabel} />
+            <SummaryRow label="Payment Status" value="Paid" paid />
+          </View>
+
+          <TouchableOpacity style={styles.receiptLink} onPress={() => setShowReceiptModal(true)} activeOpacity={0.7}>
+            <Receipt size={16} color={COLORS.primary} />
+            <Text style={styles.receiptLinkText}>View Official E-Receipt</Text>
+          </TouchableOpacity>
+        </ScrollView>
+
+        <View style={styles.footer}>
+          <TouchableOpacity
+            style={styles.homeBtn}
+            onPress={resetToHome}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="Home"
+          >
+            <Home size={20} color={COLORS.primary} />
+          </TouchableOpacity>
+          <View style={styles.flex}>
+            <Button label="Rate Driver" icon={Star} onPress={() => setScreenState('rate_review')} />
+          </View>
+        </View>
+
+        <TripReceiptModal
+          visible={showReceiptModal}
+          onClose={() => setShowReceiptModal(false)}
+          receipt={latestReceipt}
+        />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
-      <View style={styles.content}>
-        <Animated.View style={[styles.checkCircle, { transform: [{ scale: checkScale }] }]}>
-          <Check size={36} color="#FFFFFF" strokeWidth={3} />
-        </Animated.View>
-
-        <Text style={styles.title}>Thank you for riding with us!</Text>
-
-        {/* Fare is the hero number — everything else supports it */}
-        <View style={styles.fareHero}>
-          <Text style={styles.fareHeroValue}>₱{fareEstimate.total.toFixed(2)}</Text>
-          <Text style={styles.fareHeroLabel}>
-            Paid via {paymentMethod === 'gcash' ? 'GCash e-Wallet' : 'Cash'} · {latestReceipt.date}
-          </Text>
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <View style={styles.iconCircle}>
+          <MapPin size={30} color={COLORS.textInverse} strokeWidth={2.4} />
         </View>
+        <Text style={styles.title}>You've reached your destination</Text>
+        <Text style={styles.subtitle}>{dropoff.name}</Text>
 
-        {/* Compact route recap, same visual language as the rest of the journey */}
-        <View style={styles.routeCard}>
-          <RouteSummaryStrip variant="readonly" pickupLabel={pickup.name} dropoffLabel={dropoff.name} />
-        </View>
-
-        {/* One dominant action, one secondary, one tertiary — not three equals */}
-        <View style={styles.actionsCol}>
-          <View style={styles.primaryActionGroup}>
-            <Button label="Rate Your Driver" onPress={() => setScreenState('rate_review')} />
-            <Text style={styles.rateCaption}>Help keep drivers accountable</Text>
+        {/* Fare details */}
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>Fare details</Text>
+          <SummaryRow label="Distance" value={`${Number(distanceKm).toFixed(1)} km`} />
+          <SummaryRow label="Fare per passenger" value={`₱${Number(farePerPassenger).toFixed(2)}`} />
+          <SummaryRow label="Passengers" value={`× ${passengerCount}`} />
+          <View style={styles.totalRow}>
+            <Text style={styles.totalLabel}>Total fare</Text>
+            <Text style={styles.totalValue}>₱{fare.toFixed(2)}</Text>
           </View>
-
-          <TouchableOpacity
-            style={styles.secondaryAction}
-            onPress={() => setShowReceiptModal(true)}
-            activeOpacity={0.7}
-          >
-            <Receipt size={16} color={COLORS.primary} />
-            <Text style={styles.secondaryActionText}>View Official E-Receipt</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.doneLink} onPress={resetToHome} activeOpacity={0.7}>
-            <Text style={styles.doneText}>Back to Home</Text>
-          </TouchableOpacity>
         </View>
-      </View>
 
-      <TripReceiptModal
-        visible={showReceiptModal}
-        onClose={() => setShowReceiptModal(false)}
-        receipt={latestReceipt}
-      />
+        {/* Payment pending — status only; the driver collects and confirms */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionLabel}>Payment</Text>
+            <Text style={styles.methodText}>{methodLabel}</Text>
+          </View>
+          <Text style={styles.instruction}>
+            {paymentMethod === 'gcash'
+              ? 'Please pay the driver using the GCash QR shown by the driver, then give them the GCash reference number.'
+              : 'Please pay the driver the total fare in cash.'}
+          </Text>
+          <View style={styles.waitingRow}>
+            <Clock size={14} color={COLORS.primary} />
+            <Text style={styles.waitingText}>Waiting for driver to confirm payment.</Text>
+          </View>
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
+function SummaryRow({ label, value, strong, paid }: { label: string; value: string; strong?: boolean; paid?: boolean }) {
+  return (
+    <View style={styles.summaryRow}>
+      <Text style={styles.summaryLabel}>{label}</Text>
+      <Text style={[strong ? styles.summaryValueStrong : styles.summaryValue, paid && styles.paidValue]}>{value}</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-    justifyContent: 'center',
+  container: { flex: 1, backgroundColor: COLORS.background },
+  flex: { flex: 1 },
+  scrollContent: {
     paddingHorizontal: SPACING.lg,
-  },
-  content: {
+    paddingVertical: SPACING.xl,
     alignItems: 'center',
   },
-  checkCircle: {
+  iconCircle: {
     width: 68,
     height: 68,
     borderRadius: 34,
-    backgroundColor: COLORS.success,
+    backgroundColor: COLORS.primary,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: SPACING.md,
-    ...SHADOWS.md,
   },
-  title: {
-    ...TYPOGRAPHY.h2,
-    color: COLORS.textPrimary,
-    textAlign: 'center',
-  },
-  fareHero: {
-    alignItems: 'center',
-    marginTop: SPACING.md,
-    marginBottom: SPACING.lg,
-  },
-  fareHeroValue: {
-    ...TYPOGRAPHY.display,
-    color: COLORS.primary,
-  },
-  fareHeroLabel: {
-    ...TYPOGRAPHY.caption,
-    color: COLORS.textSecondary,
-    marginTop: 4,
-  },
-  routeCard: {
+  iconCirclePaid: { backgroundColor: COLORS.success },
+  title: { ...TYPOGRAPHY.h2, color: COLORS.textPrimary, textAlign: 'center' },
+  subtitle: { ...TYPOGRAPHY.bodySmall, color: COLORS.textSecondary, textAlign: 'center', marginTop: 4 },
+  section: {
     width: '100%',
-    backgroundColor: COLORS.backgroundSubtle,
-    borderRadius: RADIUS.lg,
-    paddingHorizontal: SPACING.md,
-    paddingVertical: 4,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    marginBottom: SPACING.xl,
+    marginTop: SPACING.lg,
+    paddingTop: SPACING.md,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.borderLight,
   },
-  actionsCol: {
-    width: '100%',
-    gap: SPACING.sm,
-  },
-  primaryActionGroup: {
-    gap: 6,
-  },
-  rateCaption: {
-    ...TYPOGRAPHY.caption,
-    color: COLORS.textSecondary,
-    textAlign: 'center',
-  },
-  secondaryAction: {
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  sectionLabel: { ...TYPOGRAPHY.label, color: COLORS.textMuted, marginBottom: SPACING.xs },
+  totalRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 12,
+    justifyContent: 'space-between',
+    marginTop: SPACING.xs,
+    paddingTop: SPACING.sm,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.borderLight,
   },
-  secondaryActionText: {
-    ...TYPOGRAPHY.body,
-    color: COLORS.primary,
-    fontWeight: '700',
+  totalLabel: { ...TYPOGRAPHY.bodyLarge, fontWeight: '700', color: COLORS.textPrimary },
+  totalValue: { ...TYPOGRAPHY.h2, color: COLORS.textPrimary },
+  methodText: { ...TYPOGRAPHY.body, fontWeight: '700', color: COLORS.primary },
+  instruction: { ...TYPOGRAPHY.body, color: COLORS.textSecondary, marginTop: SPACING.xs },
+  waitingRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginTop: SPACING.md },
+  waitingText: { ...TYPOGRAPHY.bodySmall, fontWeight: '600', color: COLORS.primary },
+  summary: {
+    width: '100%',
+    marginTop: SPACING.lg,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: COLORS.borderLight,
+    paddingVertical: SPACING.sm,
   },
-  doneLink: {
+  summaryRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: SPACING.sm },
+  summaryLabel: { ...TYPOGRAPHY.body, color: COLORS.textSecondary },
+  summaryValue: { ...TYPOGRAPHY.bodyLarge, color: COLORS.textPrimary },
+  summaryValueStrong: { ...TYPOGRAPHY.h3, color: COLORS.textPrimary },
+  paidValue: { color: COLORS.success },
+  receiptLink: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: SPACING.md },
+  receiptLinkText: { ...TYPOGRAPHY.body, color: COLORS.primary, fontWeight: '700' },
+  footer: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 4,
+    gap: SPACING.sm,
+    paddingHorizontal: SPACING.lg,
+    paddingTop: SPACING.md,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.borderLight,
   },
-  doneText: {
-    ...TYPOGRAPHY.body,
-    color: COLORS.textSecondary,
+  homeBtn: {
+    width: 52,
+    height: 52,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.background,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

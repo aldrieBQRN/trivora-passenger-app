@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, LayoutChangeEvent, TouchableOpacity } from 'react-native';
-import { MapPin, SignalLow, CheckCircle2, XCircle, Home, Star } from 'lucide-react-native';
+import { View, Text, StyleSheet, LayoutChangeEvent, BackHandler, TouchableOpacity } from 'react-native';
+import { MapPin, SignalLow, CheckCircle2, XCircle, ChevronDown, Star, Home } from 'lucide-react-native';
 import { useBooking } from '../context/BookingContext';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '../constants/theme';
 import { useQrRide } from '../context/QrRideContext';
@@ -11,6 +11,7 @@ import { useToast } from '../components/Toast';
 import { fetchRoute, RouteCoordinate, RouteSource } from '../services/routingService';
 import { describeTricycle, formatPeso } from '../utils/qrRide';
 import TricycleIcon from '../components/icons/TricycleIcon';
+import FloatingIconButton from '../components/FloatingIconButton';
 import { QrActiveRide } from '../types';
 
 interface QrRideScreenProps {
@@ -44,7 +45,12 @@ function agoLabel(seconds: number | null): string {
 /**
  * The passenger's own QR ride: joined and waiting for the driver's Start Ride, riding (the
  * tricycle's live GPS — shared by everyone aboard — routed to THIS passenger's destination),
- * then dropped off or cancelled. Only this passenger's trip is shown; nothing about the others.
+ * or cancelled. Only this passenger's trip is shown; nothing about the others.
+ *
+ * Drop-off is not payment: once dropped off, this same screen shows "Arrived" with a payment
+ * section that only waits for the driver (the DRIVER app shows its GCash QR, takes the reference /
+ * cash and confirms — nothing is shown or entered here). When the backend reports paid, the same
+ * screen shows the paid state and only then offers Rate Driver and Home.
  */
 export default function QrRideScreen({ topInset = 0 }: QrRideScreenProps) {
   const { ride } = useQrRide();
@@ -52,7 +58,7 @@ export default function QrRideScreen({ topInset = 0 }: QrRideScreenProps) {
 }
 
 function QrRideView({ ride, topInset }: { ride: QrActiveRide; topInset: number }) {
-  const { leaveRide, isLeaving, finishRide } = useQrRide();
+  const { leaveRide, isLeaving, finishRide, minimizeRide } = useQrRide();
   const { startRatingBooking } = useBooking();
   const { showToast } = useToast();
   const [confirmLeave, setConfirmLeave] = useState(false);
@@ -66,6 +72,9 @@ function QrRideView({ ride, topInset }: { ride: QrActiveRide; topInset: number }
   const isRiding = status === 'in_transit';
   const isDone = status === 'completed';
   const isCancelled = status === 'cancelled';
+  const isGcash = booking.payment_method === 'gcash';
+  const isPaid = isDone && booking.payment_status === 'paid';
+  const isPaymentPending = isDone && !isPaid;
 
   const pickupPoint = { name: booking.pickup.name, lat: booking.pickup.lat, lng: booking.pickup.lng };
   const dropoffPoint = { name: booking.dropoff.name, lat: booking.dropoff.lat, lng: booking.dropoff.lng };
@@ -108,9 +117,10 @@ function QrRideView({ ride, topInset }: { ride: QrActiveRide; topInset: number }
   const status_ = useMemo(() => {
     if (isWaiting) return { eyebrow: "You're on board", title: 'Waiting for the driver to start', body: 'The trip begins once everyone is aboard.', tone: 'neutral' as const };
     if (isRiding) return { eyebrow: 'Ride in progress', title: `On the way to ${booking.dropoff.name}`, body: 'The driver will drop you off at your destination.', tone: 'active' as const };
-    if (isDone) return { eyebrow: 'Dropped off', title: `You've arrived at ${booking.dropoff.name}`, body: `Pay ${formatPeso(booking.fare_amount)} to the driver in cash. This trip is saved in your ride history.`, tone: 'success' as const };
+    if (isPaymentPending) return { eyebrow: 'Payment pending', title: `Arrived at ${booking.dropoff.name}`, body: 'Pay the driver to finish your trip.', tone: 'neutral' as const };
+    if (isPaid) return { eyebrow: 'Trip complete', title: `Arrived at ${booking.dropoff.name}`, body: 'Payment confirmed. Thanks for riding with Trivora.', tone: 'success' as const };
     return { eyebrow: 'Ride cancelled', title: 'This ride was cancelled', body: cancelledMessage, tone: 'danger' as const };
-  }, [isWaiting, isRiding, isDone, booking.dropoff.name, booking.fare_amount, cancelledMessage]);
+  }, [isWaiting, isRiding, isPaymentPending, isPaid, booking.dropoff.name, cancelledMessage]);
 
   // Rate this walk-in trip on the normal Rate screen (same rating API as booked rides). The QR
   // flow is closed first so the app shows that screen; the booking id is the passenger's own.
@@ -127,6 +137,17 @@ function QrRideView({ ride, topInset }: { ride: QrActiveRide; topInset: number }
     });
     finishRide();
   };
+
+  // Android Back never abandons the ride: an ongoing or payment-pending ride is only minimized to
+  // Home (resumable from its active-ride bar); a paid or cancelled one is closed.
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (isCancelled || isPaid) finishRide();
+      else minimizeRide();
+      return true;
+    });
+    return () => sub.remove();
+  }, [isCancelled, isPaid, finishRide, minimizeRide]);
 
   const handleLeave = async () => {
     const ok = await leaveRide();
@@ -150,13 +171,23 @@ function QrRideView({ ride, topInset }: { ride: QrActiveRide; topInset: number }
         style={StyleSheet.absoluteFillObject}
       />
 
+      {(isWaiting || isRiding || isPaymentPending) && (
+        <FloatingIconButton
+          onPress={minimizeRide}
+          accessibilityLabel="Minimize ride to Home"
+          style={{ ...styles.minimizeBtn, top: topInset + 10 }}
+        >
+          <ChevronDown size={20} color={COLORS.textPrimary} />
+        </FloatingIconButton>
+      )}
+
       <View style={styles.sheet} onLayout={(e: LayoutChangeEvent) => setSheetHeight(e.nativeEvent.layout.height)}>
         <View style={styles.handle} />
 
         {/* Status — the one headline for where this ride stands */}
         <View style={styles.statusBlock}>
           <View style={styles.eyebrowRow}>
-            {isDone ? (
+            {isPaid ? (
               <CheckCircle2 size={14} color={COLORS.success} />
             ) : isCancelled ? (
               <XCircle size={14} color={COLORS.dangerDark} />
@@ -229,7 +260,7 @@ function QrRideView({ ride, topInset }: { ride: QrActiveRide; topInset: number }
           </View>
           <View style={styles.statDivider} />
           <View style={[styles.stat, styles.statEnd]}>
-            <Text style={styles.statLabel}>{isDone ? 'Paid in cash' : 'Cash fare'}</Text>
+            <Text style={styles.statLabel}>{isGcash ? 'GCash fare' : 'Cash fare'}</Text>
             <Text style={styles.fareValue}>{formatPeso(booking.fare_amount)}</Text>
           </View>
         </View>
@@ -237,19 +268,46 @@ function QrRideView({ ride, topInset }: { ride: QrActiveRide; topInset: number }
         {isWaiting && (
           <Button label="Leave Ride" variant="dangerOutline" onPress={() => setConfirmLeave(true)} loading={isLeaving} />
         )}
+        {/* Payment — status only; the driver collects and confirms on the Driver app */}
         {isDone && (
+          <>
+            <View style={styles.divider} />
+            <View style={styles.paymentBlock}>
+              <View style={styles.paymentHeader}>
+                <Text style={styles.paymentTitle}>Payment</Text>
+                <Text style={[styles.paymentBadge, isPaid && styles.paymentBadgePaid]}>
+                  {isPaid ? `Paid · ${isGcash ? 'GCash' : 'Cash'}` : isGcash ? 'GCash' : 'Cash'}
+                </Text>
+              </View>
+              {isPaymentPending ? (
+                <>
+                  <Text style={styles.body}>
+                    {isGcash
+                      ? 'Please pay the driver using the GCash QR shown by the driver, then give them the GCash reference number.'
+                      : 'Please pay the driver the fare shown above in cash.'}
+                  </Text>
+                  <Text style={styles.waitingText}>Waiting for driver to confirm payment.</Text>
+                </>
+              ) : (
+                <Text style={styles.body}>The driver confirmed your payment of {formatPeso(booking.fare_amount)}.</Text>
+              )}
+            </View>
+          </>
+        )}
+
+        {isPaid && (
           <View style={styles.doneActions}>
             <TouchableOpacity
               style={styles.homeBtn}
               onPress={finishRide}
               activeOpacity={0.7}
               accessibilityRole="button"
-              accessibilityLabel="Back to Home"
+              accessibilityLabel="Home"
             >
               <Home size={20} color={COLORS.primary} />
             </TouchableOpacity>
             <View style={styles.flex}>
-              <Button label="Rate" icon={Star} onPress={handleRate} />
+              <Button label="Rate Driver" icon={Star} onPress={handleRate} />
             </View>
           </View>
         )}
@@ -273,12 +331,21 @@ function QrRideView({ ride, topInset }: { ride: QrActiveRide; topInset: number }
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.backgroundSubtle },
   flex: { flex: 1 },
+  minimizeBtn: { position: 'absolute', left: SPACING.md },
   doneActions: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
   homeBtn: {
     width: 52, height: 52, borderRadius: RADIUS.md,
     borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.background,
     alignItems: 'center', justifyContent: 'center',
   },
+
+  // Payment (after drop-off)
+  paymentBlock: { gap: SPACING.sm },
+  paymentHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  paymentTitle: { ...TYPOGRAPHY.h3, color: COLORS.textPrimary },
+  paymentBadge: { ...TYPOGRAPHY.label, color: COLORS.textSecondary },
+  paymentBadgePaid: { color: COLORS.emerald },
+  waitingText: { ...TYPOGRAPHY.bodySmall, fontWeight: '600', color: COLORS.primary },
   sheet: {
     position: 'absolute', left: 0, right: 0, bottom: 0,
     backgroundColor: COLORS.background,

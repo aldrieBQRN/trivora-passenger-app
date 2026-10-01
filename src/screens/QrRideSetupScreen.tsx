@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
-import { MapPin, ChevronRight, Minus, Plus, AlertCircle, RefreshCw, ScanLine } from 'lucide-react-native';
+import { MapPin, ChevronRight, Minus, Plus, AlertCircle, RefreshCw, ScanLine, Banknote, Smartphone } from 'lucide-react-native';
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '../constants/theme';
 import { useQrRide } from '../context/QrRideContext';
 import { useBooking } from '../context/BookingContext';
@@ -10,7 +10,7 @@ import Button from '../components/Button';
 import DestinationPickerModal from '../components/DestinationPickerModal';
 import { describeTricycle, formatPeso } from '../utils/qrRide';
 import TricycleIcon from '../components/icons/TricycleIcon';
-import { LocationPoint } from '../types';
+import { LocationPoint, PaymentMethod } from '../types';
 
 /** Titles for the server's rejection codes — the explanation itself is always the server's. */
 const REASON_TITLES: Record<string, string> = {
@@ -44,6 +44,8 @@ export default function QrRideSetupScreen() {
 
   const [destination, setDestination] = useState<LocationPoint | null>(null);
   const [partySize, setPartySize] = useState(1);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
+  const gcashAvailable = scan?.driver?.gcash_available ?? false;
   const [showPicker, setShowPicker] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
 
@@ -243,6 +245,52 @@ export default function QrRideSetupScreen() {
               </View>
             </View>
 
+            {/* Payment Method — one row, same as the driver's Manual Ride. GCash only when this
+                tricycle's driver has a GCash QR (the server re-checks on join). */}
+            <Text style={styles.sectionLabel}>Payment Method</Text>
+            <View style={styles.paymentMethodRow}>
+              <TouchableOpacity
+                style={[styles.paymentMethodCard, paymentMethod === 'cash' && styles.paymentMethodCardActive]}
+                onPress={() => setPaymentMethod('cash')}
+                activeOpacity={0.7}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: paymentMethod === 'cash' }}
+              >
+                <Banknote size={18} color={paymentMethod === 'cash' ? COLORS.primary : COLORS.textSecondary} />
+                <Text style={[styles.paymentMethodText, paymentMethod === 'cash' && styles.paymentMethodTextActive]}>Cash</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.paymentMethodCard,
+                  paymentMethod === 'gcash' && styles.paymentMethodCardActive,
+                  !gcashAvailable && styles.paymentMethodCardDisabled,
+                ]}
+                onPress={() => { if (gcashAvailable) setPaymentMethod('gcash'); }}
+                disabled={!gcashAvailable}
+                activeOpacity={0.7}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: paymentMethod === 'gcash', disabled: !gcashAvailable }}
+              >
+                <Smartphone
+                  size={18}
+                  color={!gcashAvailable ? COLORS.textMuted : paymentMethod === 'gcash' ? COLORS.primary : COLORS.textSecondary}
+                />
+                <View>
+                  <Text
+                    style={[
+                      styles.paymentMethodText,
+                      paymentMethod === 'gcash' && styles.paymentMethodTextActive,
+                      !gcashAvailable && styles.paymentMethodTextDisabled,
+                    ]}
+                  >
+                    GCash
+                  </Text>
+                  {!gcashAvailable && <Text style={styles.paymentMethodSubtext}>Not available</Text>}
+                </View>
+              </TouchableOpacity>
+            </View>
+
             {/* Fare — exactly as quoted by the server */}
             <Text style={styles.sectionLabel}>Fare</Text>
             <View style={styles.group}>
@@ -269,7 +317,6 @@ export default function QrRideSetupScreen() {
                 </>
               ) : null}
             </View>
-            {quote ? <Text style={styles.fareNote}>Pay the driver in cash when you're dropped off.</Text> : null}
           </>
         )}
       </ScrollView>
@@ -284,7 +331,7 @@ export default function QrRideSetupScreen() {
             </View>
             <Button
               label="Join Ride"
-              onPress={joinRide}
+              onPress={() => joinRide(paymentMethod)}
               loading={isJoining}
               disabled={!quote || isQuoting}
               fullWidth={false}
@@ -353,6 +400,20 @@ const styles = StyleSheet.create({
     borderTopWidth: 1, borderTopColor: COLORS.border,
   },
   group: {},
+
+  // Payment method — same one-row cards as the driver's Manual Ride
+  paymentMethodRow: { flexDirection: 'row', gap: SPACING.md, marginTop: 2, marginBottom: SPACING.xs },
+  paymentMethodCard: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10,
+    padding: SPACING.md, borderRadius: RADIUS.md,
+    borderWidth: 1.5, borderColor: COLORS.border, backgroundColor: COLORS.surface,
+  },
+  paymentMethodCardActive: { borderColor: COLORS.primary, backgroundColor: COLORS.primaryTint },
+  paymentMethodCardDisabled: { opacity: 0.5, backgroundColor: COLORS.backgroundSubtle },
+  paymentMethodText: { ...TYPOGRAPHY.body, fontWeight: '600', color: COLORS.textPrimary },
+  paymentMethodTextActive: { color: COLORS.primary },
+  paymentMethodTextDisabled: { color: COLORS.textMuted },
+  paymentMethodSubtext: { ...TYPOGRAPHY.micro, color: COLORS.textMuted },
   groupDivider: { height: 1, backgroundColor: COLORS.borderLight },
 
   routeRow: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 58 },

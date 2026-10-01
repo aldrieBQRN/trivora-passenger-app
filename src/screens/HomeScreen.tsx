@@ -14,7 +14,8 @@ import AddEditSavedPlaceModal from '../components/AddEditSavedPlaceModal';
 import { useToast } from '../components/Toast';
 import { useSavedPlaces } from '../context/SavedPlacesContext';
 import { useLiveLocation } from '../hooks/useCurrentLocation';
-import { useQrRide } from '../context/QrRideContext';
+import { useQrRide, isQrRideUnfinished } from '../context/QrRideContext';
+import TricycleIcon from '../components/icons/TricycleIcon';
 
 interface HomeScreenProps {
   topInset?: number;
@@ -53,7 +54,14 @@ export default function HomeScreen({
   const { user } = useAuth();
   const { savedPlaces, isLoading: isLoadingSavedPlaces, addSavedPlace } = useSavedPlaces();
   const { showToast } = useToast();
-  const { openScanner } = useQrRide();
+  const { openScanner, ride: qrRide, resumeRide } = useQrRide();
+  // An unfinished QR ride minimized to Home (seated, or dropped off awaiting payment confirmation).
+  const activeQrRide = isQrRideUnfinished(qrRide) ? qrRide : null;
+  const activeQrRideStatus = !activeQrRide ? null
+    : activeQrRide.booking.status === 'accepted' ? 'Waiting for the driver to start'
+    : activeQrRide.booking.status === 'in_transit' ? `On the way to ${activeQrRide.booking.dropoff.name}`
+    : activeQrRide.booking.payment_status === 'payment_submitted' ? 'Waiting for payment confirmation'
+    : 'Payment required';
   const [showAddPlace, setShowAddPlace] = useState(false);
 
   // Same add-and-confirm handling as the Saved Places screen.
@@ -155,6 +163,25 @@ export default function HomeScreen({
           The saved places below are one-tap shortcuts into that same flow — real saved places
           only, never invented ones. */}
       <View style={styles.sheet} onLayout={handleSheetLayout}>
+        {activeQrRide && (
+          <TouchableOpacity
+            style={styles.activeRideBar}
+            onPress={resumeRide}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel={`Active Ride. ${activeQrRideStatus}. Open ride.`}
+          >
+            <View style={styles.scanIcon}>
+              <TricycleIcon size={20} color={COLORS.primary} />
+            </View>
+            <View style={styles.whereToTextCol}>
+              <Text style={styles.scanTitle}>Active Ride</Text>
+              <Text style={styles.activeRideStatus} numberOfLines={1}>{activeQrRideStatus}</Text>
+            </View>
+            <ChevronRight size={18} color={COLORS.textSecondary} />
+          </TouchableOpacity>
+        )}
+
         <TouchableOpacity
           style={[styles.whereTo, !locationKnown && styles.disabled]}
           onPress={() => openPicker('suggested')}
@@ -398,6 +425,23 @@ const styles = StyleSheet.create({
     paddingLeft: 12,
     paddingRight: SPACING.md,
     marginTop: -SPACING.xs,
+  },
+  activeRideBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    minHeight: 56,
+    paddingLeft: 12,
+    paddingRight: SPACING.md,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.background,
+  },
+  activeRideStatus: {
+    ...TYPOGRAPHY.caption,
+    fontWeight: '600',
+    color: COLORS.primary,
   },
   scanIcon: {
     width: 40,

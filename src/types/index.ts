@@ -178,6 +178,8 @@ export interface TripReceipt {
 // for rating) or driver contact details are ever part of these payloads.
 // ---------------------------------------------------------------------------------------------
 
+export type PaymentStatus = 'unpaid' | 'payment_submitted' | 'paid';
+
 export interface QrTricycleInfo {
   plate_number: string;
   sticker_number: string | null;
@@ -199,6 +201,9 @@ export interface QrScanResult {
     reason: string | null;
     reason_message: string | null;
     your_booking_code: string | null;
+  };
+  driver?: {
+    gcash_available: boolean;
   };
   gps: { last_updated_at: string | null; is_fresh: boolean };
 }
@@ -230,7 +235,9 @@ export interface QrBooking {
   fare_per_passenger: number;
   fare_amount: number;
   payment_method: string;
-  payment_status: string;
+  payment_status: PaymentStatus | string;
+  payment_reference?: string | null;
+  paid_at?: string | null;
   joined_at: string | null;
   started_at: string | null;
   completed_at: string | null;
