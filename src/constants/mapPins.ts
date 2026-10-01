@@ -6,3 +6,4 @@
  */
 export const PICKUP_PIN_IMAGE = require('../../assets/map/pin-pickup.png');
 export const DESTINATION_PIN_IMAGE = require('../../assets/map/pin-destination.png');
+export const TRICYCLE_MARKER_IMAGE = require('../../assets/images/tricycle-marker.webp');

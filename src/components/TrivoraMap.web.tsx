@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import { MapContainer, TileLayer, Marker, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -10,6 +10,12 @@ import { fetchTodaZones } from '../services/api';
 import { TodaZone } from '../types';
 import { TrivoraMapProps } from './TrivoraMap.types';
 import { haversineKm } from '../utils/routeInterpolation';
+import { TRICYCLE_MARKER_IMAGE } from '../constants/mapPins';
+
+const tricycleUri: string =
+  typeof TRICYCLE_MARKER_IMAGE === 'string'
+    ? TRICYCLE_MARKER_IMAGE
+    : TRICYCLE_MARKER_IMAGE?.default || TRICYCLE_MARKER_IMAGE?.uri || String(TRICYCLE_MARKER_IMAGE);
 
 /** Mirrors the native map's re-frame threshold — see TrivoraMap.native.tsx. */
 const REFRAME_THRESHOLD_KM = 0.12;
@@ -61,10 +67,10 @@ export const DROPOFF_ICON_HTML = `
   </div>
 `;
 
-function driverIconHtml(heading: number): string {
+function driverIconHtml(heading: number, uri: string): string {
   return `
-    <div style="width:36px;height:36px;border-radius:18px;background:#FFFFFF;border:2.5px solid ${COLORS.primary};display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(15,23,42,0.35);transform:rotate(${heading}deg);">
-      <div style="width:11px;height:11px;border-radius:6px;background:#3B82F6;"></div>
+    <div style="width:45px;height:30px;display:flex;align-items:center;justify-content:center;filter:drop-shadow(0 2px 5px rgba(0,0,0,0.35));transform:rotate(${heading}deg);">
+      <img src="${uri}" alt="Tricycle" style="width:45px;height:30px;object-fit:contain;pointer-events:none;" />
     </div>
   `;
 }
@@ -334,7 +340,15 @@ export default function TrivoraMapWeb({
   // on every tick — imperceptible visually, but cuts marker recreation frequency noticeably.
   const roundedHeading = driverLocation ? Math.round(driverLocation.heading / 5) * 5 : 0;
   const driverIcon = useMemo(
-    () => (driverLocation ? makeDivIcon(driverIconHtml(roundedHeading), 36) : null),
+    () =>
+      driverLocation
+        ? L.divIcon({
+            html: driverIconHtml(roundedHeading, tricycleUri),
+            className: 'trivora-driver-marker-icon',
+            iconSize: [45, 30],
+            iconAnchor: [22.5, 15],
+          })
+        : null,
     [!!driverLocation, roundedHeading]
   );
 

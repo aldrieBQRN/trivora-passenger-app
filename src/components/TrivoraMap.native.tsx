@@ -3,13 +3,13 @@ import { View, Text, Image, StyleSheet, TouchableOpacity } from 'react-native';
 import { Map, Camera, Marker, GeoJSONSource, Layer, type CameraRef } from '@maplibre/maplibre-react-native';
 import { COLORS, RADIUS, SHADOWS } from '../constants/theme';
 import { Compass, Zap, LocateFixed } from 'lucide-react-native';
-import { TricycleIcon } from './icons';
 
-import { PICKUP_PIN_IMAGE, DESTINATION_PIN_IMAGE } from '../constants/mapPins';
+import { PICKUP_PIN_IMAGE, DESTINATION_PIN_IMAGE, TRICYCLE_MARKER_IMAGE } from '../constants/mapPins';
 import {
   CARTO_MAP_STYLE,
   NO_PADDING,
   PIN_SIZE,
+  TRICYCLE_MARKER_SIZE,
   deltaToZoom,
   boundsOf,
   routeLineFeature,
@@ -317,10 +317,12 @@ export default function TrivoraMapNative({
         {/* Moving Driver Marker — rendered last so it draws above the pins. */}
         {driverLocation ? (
           <Marker id="driver" lngLat={[driverLocation.lng, driverLocation.lat]} anchor="center">
-            {/* Same rendering as the Driver app's own map marker (TrivoraDriverMap.native.tsx):
-                white bubble + TricycleIcon, rotated by heading with NO base offset. */}
-            <View style={[styles.trikeBubble, { transform: [{ rotate: `${driverLocation.heading || 0}deg` }] }]}>
-              <TricycleIcon size={20} color={COLORS.primary} accentColor="#3B82F6" />
+            <View style={{ transform: [{ rotate: `${driverLocation.heading || 0}deg` }] }}>
+              <Image
+                source={TRICYCLE_MARKER_IMAGE}
+                style={styles.tricycleMarker}
+                resizeMode="contain"
+              />
             </View>
           </Marker>
         ) : null}
@@ -415,16 +417,9 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     fontWeight: '500',
   },
-  trikeBubble: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 2,
-    borderColor: COLORS.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...SHADOWS.md,
+  tricycleMarker: {
+    width: TRICYCLE_MARKER_SIZE.width,
+    height: TRICYCLE_MARKER_SIZE.height,
   },
   todaPill: {
     position: 'absolute',

@@ -1,7 +1,7 @@
 import React from 'react';
-import { View, StyleSheet, Text, ViewStyle } from 'react-native';
-import TricycleIcon from './TricycleIcon';
+import { View, StyleSheet, Text, ViewStyle, Image } from 'react-native';
 import { COLORS, SHADOWS } from '../../constants/theme';
+import { TRICYCLE_MARKER_IMAGE } from '../../constants/mapPins';
 
 interface TricycleMarkerProps {
   size?: number;
@@ -13,18 +13,17 @@ interface TricycleMarkerProps {
 }
 
 /**
- * Premium map marker for Tricycle vehicles.
- * Renders a crisp elevated white disc with border, directional badge, and TricycleIcon.
+ * Premium map marker for Tricycle vehicles using the official tricycle WebP asset.
  */
 export default function TricycleMarker({
-  size = 38,
+  size = 45,
   heading = 0,
   showEta = false,
   etaText = '3 MIN',
   isDriver = false,
   style,
 }: TricycleMarkerProps) {
-  const iconSize = Math.round(size * 0.62);
+  const height = Math.round(size * (2 / 3));
 
   return (
     <View style={[styles.container, style]}>
@@ -35,35 +34,18 @@ export default function TricycleMarker({
         </View>
       )}
 
-      {/* Main Elevated Vehicle Disc */}
+      {/* Main Vehicle Marker */}
       <View
         style={[
-          styles.markerBubble,
-          {
-            width: size,
-            height: size,
-            borderRadius: size / 2,
-            borderColor: isDriver ? COLORS.primary : '#CBD5E1',
-          },
+          styles.markerWrapper,
+          { transform: [{ rotate: `${heading || 0}deg` }] },
         ]}
       >
-        <TricycleIcon
-          size={iconSize}
-          color={isDriver ? COLORS.primary : '#334155'}
-          accentColor={isDriver ? '#3B82F6' : '#64748B'}
+        <Image
+          source={TRICYCLE_MARKER_IMAGE}
+          style={{ width: size, height }}
+          resizeMode="contain"
         />
-
-        {/* Small Direction Arrow Notch */}
-        {heading !== undefined && (
-          <View
-            style={[
-              styles.headingDot,
-              {
-                backgroundColor: isDriver ? COLORS.primary : '#64748B',
-              },
-            ]}
-          />
-        )}
       </View>
     </View>
   );
@@ -74,19 +56,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  markerBubble: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1.8,
+  markerWrapper: {
     alignItems: 'center',
     justifyContent: 'center',
-    ...SHADOWS.md,
-  },
-  headingDot: {
-    position: 'absolute',
-    top: 2,
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
   },
   etaPill: {
     backgroundColor: '#0F172A',

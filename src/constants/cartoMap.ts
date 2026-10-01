@@ -31,6 +31,9 @@ export const NO_PADDING = { top: 0, right: 0, bottom: 0, left: 0 };
 /** Pin bitmaps (constants/mapPins) are 28x36dp with the tip at the bottom-center pixel. */
 export const PIN_SIZE = { width: 28, height: 36 };
 
+/** Tricycle vehicle marker display size (3:2 aspect ratio, matching the optimized 384x256 WebP asset). */
+export const TRICYCLE_MARKER_SIZE = { width: 45, height: 30 };
+
 /** The camera used to be sized by a lat/lng span (react-native-maps regions); MapLibre uses a zoom
  * level (512dp world at zoom 0). Converts the same span across the map's width (the window width
  * until the map has been measured). */
