@@ -7,6 +7,7 @@ import {
   DriverProfile,
   HistoryItem,
   PaymentMethod,
+  PaymentStatus,
   NotificationItem,
   TripReceipt,
 } from '../types';
@@ -158,22 +159,11 @@ interface BookingContextType {
 
   // State transitions
   startBookingFlow: () => void;
-  /** Returns once the request has actually settled (screen moves to 'searching' on success, or
-   * a toast is shown and the caller stays put on failure) — callers can await this to show a
-   * loading state on the Confirm button instead of it looking unresponsive on a slow network. */
-  confirmBooking: (numberOfPassengers: number) => Promise<void>;
-  /** Server-authoritative: only clears the active booking locally once the backend has actually
-   * confirmed the cancellation. Resolves false (and shows a toast) if the backend call fails, so
-   * the passenger is never shown "cancelled/back to Home" while the booking is still active
-   * server-side. */
+  confirmBooking: (numberOfPassengers: number, paymentMethod?: PaymentMethod) => Promise<void>;
   cancelBooking: () => Promise<boolean>;
   simulateDriverArrival: () => void;
   startRideTransit: () => void;
   completeRide: () => void;
-  /** Starts rating a specific already-completed ride from Ride History — sets the booking to be
-   * rated explicitly, rather than assuming whichever one completed most recently. */
-  /** `driver` (optional) shows the right driver on the Rate screen when the ride didn't come
-   * through the normal booking flow (e.g. a Scan to Ride trip). */
   startRatingBooking: (
     bookingId: number | string,
     driver?: { name: string; avatarUrl?: string; plateNumber?: string; model?: string }
@@ -181,6 +171,12 @@ interface BookingContextType {
   finishReview: () => void;
   resetToHome: () => void;
   fastForwardSearch: () => void;
+
+  // Payment Settlement
+  paymentStatus: PaymentStatus;
+  paymentReference: string | null;
+  realBookingId: number | string | null;
+  bookingIdToRate: number | string | null;
 }
 
 const BookingContext = createContext<BookingContextType | null>(null);
@@ -375,6 +371,8 @@ export function BookingProvider({ children }: { children: ReactNode }) {
     return calculateFare(dist, TODA_ZONES[0]);
   });
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
+  const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>('unpaid');
+  const [paymentReference, setPaymentReference] = useState<string | null>(null);
   const [noteToDriver, setNoteToDriver] = useState<string>('');
   const [activeDriver, setActiveDriver] = useState<DriverProfile>(DEFAULT_DRIVER);
   const [historyList, setHistoryList] = useState<HistoryItem[]>(INITIAL_HISTORY);
@@ -707,7 +705,10 @@ export function BookingProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const confirmBooking = async (numberOfPassengers: number): Promise<void> => {
+  const confirmBooking = async (
+    numberOfPassengers: number,
+    selectedPaymentMethod: PaymentMethod = paymentMethod
+  ): Promise<void> => {
     if (BOOKING_MODE === 'simulated') {
       setScreenState('searching');
       setSearchCountdown(8);
@@ -725,18 +726,15 @@ export function BookingProvider({ children }: { children: ReactNode }) {
         dropoff_lat: dropoff.lat,
         dropoff_lng: dropoff.lng,
         passenger_count: numberOfPassengers,
-        // The fare is computed backend-side from distance_km alone (FareService) — never sent as
-        // a client-supplied amount, and never scaled by passenger count.
         distance_km: fareEstimate.distanceKm,
         estimated_duration_mins: fareEstimate.durationMinutes,
-        payment_method: 'cash',
-        // Previously never sent at all — the passenger could type a note here, but it stayed
-        // local-only (noteToDriver state) and the backend's already-existing passenger_notes
-        // column simply never received it, so the driver had nothing to see regardless of what
-        // the driver app itself did with it.
+        payment_method: selectedPaymentMethod,
         passenger_notes: noteToDriver.trim() || undefined,
       });
       setRealBookingId(res.booking.id);
+      setPaymentMethod(selectedPaymentMethod);
+      setPaymentStatus('unpaid');
+      setPaymentReference(null);
       // The backend recomputes the fare from distance_km + passenger_count independently
       // (FareService) — this is normally identical to the local preview, but the backend's
       // numbers are what's actually confirmed/billed, so they replace the preview here rather
@@ -1132,14 +1130,17 @@ export function BookingProvider({ children }: { children: ReactNode }) {
           dropoffRouteOriginRef.current = null;
         }
 
+        if (booking.payment_status) {
+          setPaymentStatus(booking.payment_status as PaymentStatus);
+        }
+        if (booking.payment_reference) {
+          setPaymentReference(booking.payment_reference);
+        }
+        if (booking.payment_method) {
+          setPaymentMethod(booking.payment_method as PaymentMethod);
+        }
+
         if (booking.status === 'completed') {
-          // The Driver app's own history mapper (mapBookingRecordToHistoryItem) already uses
-          // completed_at as the ride's history timestamp, falling back to cancelled_at/
-          // requested_at — this previously used requested_at unconditionally, which is a
-          // DIFFERENT timestamp for the same booking (when it was first requested, not when it
-          // actually happened), causing Passenger and Driver to show different times for the
-          // identical ride. Matching the same field + fallback chain keeps both apps deriving
-          // the displayed time from the same source of truth.
           const rideAt = booking.completed_at || booking.cancelled_at || booking.requested_at;
           const rideDate = rideAt ? new Date(rideAt) : new Date();
           const receipt: TripReceipt = {
@@ -1155,7 +1156,7 @@ export function BookingProvider({ children }: { children: ReactNode }) {
             farePerPassenger: Number(booking.fare_per_passenger ?? fareEstimate.perPassengerFare),
             passengerCount: Number(booking.passenger_count ?? fareEstimate.passengerCount),
             totalFare: Number(booking.fare_amount ?? fareEstimate.total),
-            paymentMethod: 'cash',
+            paymentMethod: (booking.payment_method as PaymentMethod) || paymentMethod,
             driverName: driverProfile?.name || activeDriver.name,
             plateNumber: driverProfile?.tricycle.plateNumber || activeDriver.tricycle.plateNumber,
             codingNumber: driverProfile?.tricycle.codingNumber || activeDriver.tricycle.codingNumber,
@@ -1179,16 +1180,12 @@ export function BookingProvider({ children }: { children: ReactNode }) {
             plateNumber: receipt.plateNumber,
             rating: null,
           });
-          // Kept until the rating is actually submitted (finishReview), unlike realBookingId
-          // which is cleared right below to stop polling.
           setBookingIdToRate(booking.id);
-          // Ride is done — stop polling naturally (tears this effect down via the dependency
-          // array) instead of continuing to hit an endpoint with nothing left to change.
-          setRealBookingId(null);
-          // total_rides (and any other booking-derived profile stat) just changed on the backend
-          // — refetch now instead of waiting for the passenger to happen to reopen Profile, so it
-          // reads correctly the moment they do.
-          refreshProfile();
+          // Only stop polling once the payment is confirmed/paid!
+          if (booking.payment_status === 'paid') {
+            setRealBookingId(null);
+            refreshProfile();
+          }
         }
 
         const nextState = mapBackendStatusToScreenState(booking.status);
@@ -1336,6 +1333,10 @@ export function BookingProvider({ children }: { children: ReactNode }) {
         finishReview,
         resetToHome,
         fastForwardSearch,
+        paymentStatus,
+        paymentReference,
+        realBookingId,
+        bookingIdToRate,
       }}
     >
       {children}

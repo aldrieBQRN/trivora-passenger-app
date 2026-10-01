@@ -4,7 +4,7 @@ import { useAuth } from './AuthContext';
 import { useBooking } from './BookingContext';
 import { useToast } from '../components/Toast';
 import { parseRideQrToken } from '../utils/qrRide';
-import { LocationPoint, QrActiveRide, QrQuote, QrScanResult } from '../types';
+import { LocationPoint, PaymentMethod, QrActiveRide, QrQuote, QrScanResult } from '../types';
 
 /**
  * QR Ride / Scan to Ride state — a separate, small flow next to the normal booking flow
@@ -12,7 +12,14 @@ import { LocationPoint, QrActiveRide, QrQuote, QrScanResult } from '../types';
  * the app never computes fares, distances, capacity or pick-up points itself.
  *
  *   idle -> scan (camera) -> setup (tricycle, destination, party size, server quote, Join)
- *        -> ride (waiting for Start Ride -> riding -> dropped off / cancelled) -> idle
+ *        -> ride (waiting for Start Ride -> riding -> dropped off, payment pending -> paid
+ *           [Rate Driver / Home] | cancelled) -> idle
+ * All of 'ride' is the one QrRideScreen; payment is a state of it, not a separate page.
+ *
+ * Drop-off is NOT the end of the passenger's flow: the booking is 'completed' but its payment can
+ * still be unpaid, so the ride is kept (and polled) until payment_status = 'paid'. The passenger
+ * can minimize an unfinished ride to Home (stage 'idle' with `ride` kept) and resume it from
+ * Home's active-ride bar; on launch the backend's active QR ride is restored.
  *
  * The scanned token lives only in memory (a ref) and is never rendered.
  */
@@ -27,7 +34,13 @@ export interface QrError {
 /** Same cadence as the normal ride's active-booking poll (BookingContext ACTIVE_BOOKING_POLL_MS). */
 const QR_RIDE_POLL_MS = 5000;
 
-const TERMINAL = ['completed', 'cancelled'];
+/** Still part of the passenger's flow: seated, or dropped off with the driver yet to confirm payment. */
+export function isQrRideUnfinished(ride: QrActiveRide | null): boolean {
+  if (!ride) return false;
+  const { status, payment_status } = ride.booking;
+  if (status === 'accepted' || status === 'in_transit') return true;
+  return status === 'completed' && payment_status !== 'paid';
+}
 
 interface QrRideContextType {
   stage: QrStage;
@@ -49,9 +62,13 @@ interface QrRideContextType {
   refreshScan: () => Promise<void>;
   requestQuote: (destination: LocationPoint, partySize: number, passengerLocation: { lat: number; lng: number }) => Promise<void>;
   clearQuote: () => void;
-  joinRide: () => Promise<void>;
+  joinRide: (paymentMethod?: PaymentMethod | string) => Promise<void>;
   leaveRide: () => Promise<boolean>;
   finishRide: () => void;
+  /** Go to Home without abandoning the ride; it stays polled and resumable from Home. */
+  minimizeRide: () => void;
+  /** Reopen the kept ride (QR ride screen, or the payment screen once dropped off). */
+  resumeRide: () => void;
 }
 
 const QrRideContext = createContext<QrRideContextType | null>(null);
@@ -221,12 +238,12 @@ export function QrRideProvider({ children }: { children: React.ReactNode }) {
     setIsQuoting(false);
   }, []);
 
-  const joinRide = useCallback(async () => {
+  const joinRide = useCallback(async (paymentMethod: PaymentMethod | string = 'cash') => {
     if (!quote || isJoining) return;
     setIsJoining(true);
     setJoinError(null);
     try {
-      const res = await passengerApi.qrJoin(quote.quote);
+      const res = await passengerApi.qrJoin(quote.quote, paymentMethod);
       enterRide({ booking: res.booking, session: res.session, tricycle: res.tricycle, driver_location: res.driver_location });
       showToast("You've joined the ride.");
     } catch (err: any) {
@@ -279,12 +296,26 @@ export function QrRideProvider({ children }: { children: React.ReactNode }) {
     refreshHistory();
   }, [resetSetup, refreshHistory]);
 
-  // While in a QR ride: follow it on the backend (joined -> started -> dropped off / cancelled),
-  // including the shared driver GPS. Stops polling once the trip reaches a final status.
+  const minimizeRide = useCallback(() => {
+    setStage((prev) => (prev === 'ride' ? 'idle' : prev));
+  }, []);
+
+  const resumeRide = useCallback(() => {
+    if (ride) {
+      resetSetup();
+      setStage('ride');
+    }
+  }, [ride, resetSetup]);
+
+  // While a QR ride is unfinished — on its own screen or minimized to Home: follow it on the
+  // backend (joined -> started -> dropped off -> paid / cancelled), including the shared driver
+  // GPS and, after drop-off, the driver's payment confirmation. Stops once paid or cancelled.
   const bookingCode = ride?.booking.booking_code;
   const bookingStatus = ride?.booking.status;
+  const paymentStatus = ride?.booking.payment_status;
+  const unfinished = isQrRideUnfinished(ride);
   useEffect(() => {
-    if (stage !== 'ride' || !bookingCode || !isAuthenticated || (bookingStatus && TERMINAL.includes(bookingStatus))) {
+    if (!unfinished || !bookingCode || !isAuthenticated) {
       return;
     }
     let cancelled = false;
@@ -308,9 +339,12 @@ export function QrRideProvider({ children }: { children: React.ReactNode }) {
               );
             }
           }
+          if (prev && prev.booking.payment_status !== 'paid' && res.ride!.booking.payment_status === 'paid') {
+            showToast('Payment confirmed.');
+          }
           return res.ride;
         });
-        if (TERMINAL.includes(res.ride.booking.status)) refreshHistory();
+        if (!isQrRideUnfinished(res.ride)) refreshHistory();
       } catch {
         // Transient network hiccup — keep polling.
       }
@@ -321,13 +355,14 @@ export function QrRideProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [stage, bookingCode, bookingStatus, isAuthenticated, showToast, refreshHistory]);
+  }, [unfinished, bookingCode, bookingStatus, paymentStatus, isAuthenticated, showToast, refreshHistory]);
 
   return (
     <QrRideContext.Provider
       value={{
         stage, scan, scanError, isResolving, quote, quoteError, isQuoting, joinError, isJoining, ride, isLeaving,
         openScanner, closeQr, submitScannedData, refreshScan, requestQuote, clearQuote, joinRide, leaveRide, finishRide,
+        minimizeRide, resumeRide,
       }}
     >
       {children}

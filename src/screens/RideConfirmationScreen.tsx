@@ -9,6 +9,7 @@ import TrivoraMap from '../components/TrivoraMap';
 import FloatingIconButton from '../components/FloatingIconButton';
 import Button from '../components/Button';
 import RouteSummaryStrip from '../components/RouteSummaryStrip';
+import PaymentMethodSelector from '../components/PaymentMethodSelector';
 
 const MAP_STRIP_HEIGHT = 200;
 /** Floating back button over the map strip (top offset + size) — its bottom edge is passed to the
@@ -29,6 +30,8 @@ export default function RideConfirmationScreen() {
     noteToDriver,
     setNoteToDriver,
     confirmBooking,
+    paymentMethod,
+    setPaymentMethod,
   } = useBooking();
   const [isConfirming, setIsConfirming] = useState(false);
   const [numberOfPassengers, setNumberOfPassengers] = useState('1');
@@ -60,10 +63,7 @@ export default function RideConfirmationScreen() {
     if (isConfirming) return;
     if (!validate()) return;
     setIsConfirming(true);
-    await confirmBooking(parsedPassengerCount);
-    // On success this screen has already been replaced by SearchingDriversScreen (screenState
-    // moved to 'searching'), so this only visibly matters on failure — resetting the button
-    // instead of leaving it stuck mid-spin after the toast.
+    await confirmBooking(parsedPassengerCount, paymentMethod);
     setIsConfirming(false);
   };
 
@@ -156,13 +156,11 @@ export default function RideConfirmationScreen() {
           </View>
         </View>
 
-        {/* Cash is the only supported payment method right now, so this is a plain info row
-            instead of a selector with nothing else to select. */}
-        <Text style={styles.sectionLabel}>Payment Method</Text>
-        <View style={styles.paymentRow}>
-          <CashIcon size={18} />
-          <Text style={styles.paymentRowText}>Cash — pay the driver directly</Text>
-        </View>
+        {/* Payment Method Selector */}
+        <PaymentMethodSelector
+          selected={paymentMethod}
+          onSelect={setPaymentMethod}
+        />
 
         {/* Note to driver — always visible, no tap needed to reveal it; the label makes clear
             it's optional instead of relying on an extra "Add a note" step. */}
