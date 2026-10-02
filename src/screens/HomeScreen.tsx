@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, LayoutChangeEvent, ActivityIndicator } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, LayoutChangeEvent, ActivityIndicator, Animated, Easing } from 'react-native';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '../constants/theme';
 import { useBooking } from '../context/BookingContext';
 import { useAuth } from '../context/AuthContext';
@@ -83,6 +83,12 @@ export default function HomeScreen({
   };
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
 
+  // Sheet eases up into place when Home opens (transform only, so its measured height is unchanged).
+  const enter = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(enter, { toValue: 1, duration: 320, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+  }, [enter]);
+
   // Measured from actual layout rather than guessed, so the pickup pin sits centered in the
   // visible area between the header bar and the action sheet, not the full screen height.
   const [headerHeight, setHeaderHeight] = useState(0);
@@ -116,6 +122,8 @@ export default function HomeScreen({
         showCompass={false}
         focusCurrentLocation
         currentLocation={liveLocation ?? (locationKnown ? { lat: currentLat as number, lng: currentLng as number } : null)}
+        mapVariant="bright"
+        pitch={0}
         topInset={headerHeight}
         bottomInset={sheetHeight}
         style={StyleSheet.absoluteFillObject}
@@ -153,6 +161,7 @@ export default function HomeScreen({
           onPress={handleOpenNotifications}
           hasBadge={unreadNotificationCount > 0}
           accessibilityLabel="Notifications"
+          style={styles.headerIconBtn}
         >
           <Bell size={17} color={COLORS.textPrimary} />
         </FloatingIconButton>
@@ -162,7 +171,13 @@ export default function HomeScreen({
           suggested, or pin on map), and every path lands on the same Destination & Route screen.
           The saved places below are one-tap shortcuts into that same flow — real saved places
           only, never invented ones. */}
-      <View style={styles.sheet} onLayout={handleSheetLayout}>
+      <Animated.View
+        style={[
+          styles.sheet,
+          { opacity: enter, transform: [{ translateY: enter.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) }] },
+        ]}
+        onLayout={handleSheetLayout}
+      >
         {activeQrRide && (
           <TouchableOpacity
             style={styles.activeRideBar}
@@ -171,17 +186,19 @@ export default function HomeScreen({
             accessibilityRole="button"
             accessibilityLabel={`Active Ride. ${activeQrRideStatus}. Open ride.`}
           >
-            <View style={styles.scanIcon}>
-              <TricycleIcon size={20} color={COLORS.primary} />
+            <View style={styles.activeRideIcon}>
+              <TricycleIcon size={20} color={COLORS.textInverse} />
             </View>
             <View style={styles.whereToTextCol}>
-              <Text style={styles.scanTitle}>Active Ride</Text>
+              <Text style={styles.activeRideTitle}>Active Ride</Text>
               <Text style={styles.activeRideStatus} numberOfLines={1}>{activeQrRideStatus}</Text>
             </View>
-            <ChevronRight size={18} color={COLORS.textSecondary} />
+            <ChevronRight size={18} color={COLORS.textInverse} />
           </TouchableOpacity>
         )}
 
+        {/* Both ways to ride in one grouped card: "Where to?" leads, Scan to Ride sits below it. */}
+        <View style={styles.rideCard}>
         <TouchableOpacity
           style={[styles.whereTo, !locationKnown && styles.disabled]}
           onPress={() => openPicker('suggested')}
@@ -202,6 +219,8 @@ export default function HomeScreen({
           <ChevronRight size={20} color={COLORS.textSecondary} />
         </TouchableOpacity>
 
+        <View style={styles.rideCardDivider} />
+
         {/* Second way to ride: already at a tricycle with no booking — scan its QR and join. */}
         <TouchableOpacity
           style={styles.scanRow}
@@ -219,8 +238,7 @@ export default function HomeScreen({
           </View>
           <ChevronRight size={18} color={COLORS.textMuted} />
         </TouchableOpacity>
-
-        <View style={styles.divider} />
+        </View>
 
         <View style={styles.savedSection}>
           <View style={styles.sectionHeader}>
@@ -259,50 +277,44 @@ export default function HomeScreen({
               </View>
             </TouchableOpacity>
           ) : (
-            // Fixed row of four equal tiles: the first three saved places, then "More" for the
-            // full Saved Places list (where the rest live and new ones are added).
-            <View style={styles.tileRow}>
+            // One grouped strip, like the driver's Today strip: the first three saved places, then
+            // "More" for the full Saved Places list (where the rest live and new ones are added).
+            <View style={styles.placesStrip}>
               {savedPlaces.slice(0, MAX_SHORTCUTS).map((place) => {
                 const Icon = SAVED_PLACE_ICONS[place.label] || Bookmark;
                 return (
-                  <TouchableOpacity
-                    key={place.id}
-                    style={[styles.tile, !locationKnown && styles.disabled]}
-                    onPress={() =>
-                      selectDestination({ name: place.label, address: place.address, lat: place.lat, lng: place.lng, category: 'Saved' })
-                    }
-                    activeOpacity={0.7}
-                    disabled={!locationKnown}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Go to ${place.label}, ${place.address}`}
-                  >
-                    <View style={styles.tileIcon}>
+                  <React.Fragment key={place.id}>
+                    <TouchableOpacity
+                      style={[styles.placeCell, !locationKnown && styles.disabled]}
+                      onPress={() =>
+                        selectDestination({ name: place.label, address: place.address, lat: place.lat, lng: place.lng, category: 'Saved' })
+                      }
+                      activeOpacity={0.6}
+                      disabled={!locationKnown}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Go to ${place.label}, ${place.address}`}
+                    >
                       <Icon size={18} color={COLORS.primary} />
-                    </View>
-                    <Text style={styles.tileLabel} numberOfLines={1}>{place.label}</Text>
-                  </TouchableOpacity>
+                      <Text style={styles.placeLabel} numberOfLines={1}>{place.label}</Text>
+                    </TouchableOpacity>
+                    <View style={styles.placeDivider} />
+                  </React.Fragment>
                 );
               })}
-              {/* Keeps "More" in the fourth slot even with fewer than three saved places. */}
-              {Array.from({ length: Math.max(0, MAX_SHORTCUTS - savedPlaces.length) }).map((_, i) => (
-                <View key={`spacer-${i}`} style={styles.tile} />
-              ))}
               <TouchableOpacity
-                style={styles.tile}
+                style={styles.placeCell}
                 onPress={() => openPicker('saved')}
-                activeOpacity={0.7}
+                activeOpacity={0.6}
                 accessibilityRole="button"
                 accessibilityLabel={`More saved places${savedPlaces.length > MAX_SHORTCUTS ? `, ${savedPlaces.length - MAX_SHORTCUTS} more` : ''}`}
               >
-                <View style={[styles.tileIcon, styles.tileIconMuted]}>
-                  <MoreHorizontal size={18} color={COLORS.textSecondary} />
-                </View>
-                <Text style={[styles.tileLabel, styles.tileLabelMuted]} numberOfLines={1}>More</Text>
+                <MoreHorizontal size={18} color={COLORS.textSecondary} />
+                <Text style={[styles.placeLabel, styles.placeLabelMuted]} numberOfLines={1}>More</Text>
               </TouchableOpacity>
             </View>
           )}
         </View>
-      </View>
+      </Animated.View>
 
       <AddEditSavedPlaceModal
         visible={showAddPlace}
@@ -346,10 +358,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
     backgroundColor: COLORS.background,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
+    // Floats over the map as a rounded card instead of a bar with a hard bottom rule.
+    borderBottomLeftRadius: RADIUS.xxl,
+    borderBottomRightRadius: RADIUS.xxl,
     paddingHorizontal: SPACING.md,
-    paddingBottom: SPACING.sm + 4,
+    paddingBottom: SPACING.sm + 6,
+    ...SHADOWS.md,
+  },
+  headerIconBtn: {
+    backgroundColor: COLORS.backgroundSubtle,
+    borderWidth: 1,
+    borderColor: COLORS.borderLight,
+    shadowOpacity: 0,
+    elevation: 0,
   },
   headerTextCol: {
     flex: 1,
@@ -380,26 +401,37 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: RADIUS.xxl,
     borderTopRightRadius: RADIUS.xxl,
     paddingHorizontal: SPACING.md + 4,
-    paddingTop: SPACING.lg,
-    paddingBottom: SPACING.md + 4,
-    gap: SPACING.md,
+    paddingTop: SPACING.md + 4,
+    paddingBottom: SPACING.md,
+    gap: SPACING.sm + 6,
     ...SHADOWS.sheet,
+  },
+  // One white card holding both ride options (hairline border, soft lift).
+  rideCard: {
+    borderRadius: RADIUS.xl,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.background,
+    ...SHADOWS.card,
+  },
+  rideCardDivider: {
+    height: 1,
+    backgroundColor: COLORS.borderLight,
+    marginLeft: 12 + 44 + 12, // starts under the text, not the icon
   },
   whereTo: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    minHeight: 68,
+    minHeight: 72,
     paddingLeft: 12,
     paddingRight: SPACING.md,
     paddingVertical: 12,
-    borderRadius: RADIUS.xl,
-    backgroundColor: COLORS.surfaceInput,
   },
   searchBadge: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: COLORS.primary,
     alignItems: 'center',
     justifyContent: 'center',
@@ -416,37 +448,49 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     marginTop: 2,
   },
-  // Secondary action: same left edge as the search badge, no box — lighter than "Where to?".
+  // Secondary row inside the ride card — lighter than "Where to?".
   scanRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    minHeight: 52,
+    minHeight: 60,
     paddingLeft: 12,
     paddingRight: SPACING.md,
-    marginTop: -SPACING.xs,
+    paddingVertical: SPACING.sm,
   },
   activeRideBar: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    minHeight: 56,
-    paddingLeft: 12,
-    paddingRight: SPACING.md,
-    borderRadius: RADIUS.lg,
-    borderWidth: 1,
-    borderColor: COLORS.primary,
-    backgroundColor: COLORS.background,
+    minHeight: 60,
+    paddingHorizontal: 12,
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIUS.xl,
+    backgroundColor: COLORS.primary,
+    ...SHADOWS.md,
   },
-  activeRideStatus: {
-    ...TYPOGRAPHY.caption,
-    fontWeight: '600',
-    color: COLORS.primary,
-  },
-  scanIcon: {
+  activeRideIcon: {
     width: 40,
     height: 40,
     borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  activeRideTitle: {
+    ...TYPOGRAPHY.bodyLarge,
+    fontWeight: '700',
+    color: COLORS.textInverse,
+  },
+  activeRideStatus: {
+    ...TYPOGRAPHY.caption,
+    color: 'rgba(255,255,255,0.75)',
+    marginTop: 1,
+  },
+  scanIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: COLORS.primaryTint,
     alignItems: 'center',
     justifyContent: 'center',
@@ -455,13 +499,9 @@ const styles = StyleSheet.create({
     ...TYPOGRAPHY.bodyLarge,
     color: COLORS.textPrimary,
   },
-  divider: {
-    height: 1,
-    backgroundColor: COLORS.borderLight,
-    marginTop: -SPACING.xs,
-  },
   savedSection: {
-    gap: SPACING.sm + 4,
+    gap: SPACING.sm + 2,
+    marginTop: SPACING.xs,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -470,7 +510,7 @@ const styles = StyleSheet.create({
   },
   sectionLabel: {
     ...TYPOGRAPHY.label,
-    color: COLORS.textSecondary,
+    color: COLORS.textMuted,
   },
   addLink: {
     flexDirection: 'row',
@@ -482,35 +522,34 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: COLORS.primary,
   },
-  tileRow: {
+  // Saved places strip — light grey, hairline border, vertical dividers between cells.
+  placesStrip: {
     flexDirection: 'row',
-    gap: SPACING.xs,
+    alignItems: 'center',
+    paddingVertical: SPACING.sm + 4,
+    borderRadius: RADIUS.lg,
+    backgroundColor: COLORS.backgroundSubtle,
+    borderWidth: 1,
+    borderColor: COLORS.borderLight,
   },
-  tile: {
+  placeCell: {
     flex: 1,
     alignItems: 'center',
     gap: 6,
-    paddingVertical: SPACING.xs,
-    minHeight: 72,
+    paddingHorizontal: SPACING.xs,
   },
-  tileIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: COLORS.primaryTint,
-    alignItems: 'center',
-    justifyContent: 'center',
+  placeDivider: {
+    width: 1,
+    alignSelf: 'stretch',
+    backgroundColor: COLORS.border,
   },
-  tileIconMuted: {
-    backgroundColor: COLORS.surfaceInput,
-  },
-  tileLabel: {
+  placeLabel: {
     ...TYPOGRAPHY.caption,
     fontWeight: '600',
     color: COLORS.textPrimary,
     maxWidth: '100%',
   },
-  tileLabelMuted: {
+  placeLabelMuted: {
     color: COLORS.textSecondary,
   },
   savedStatusRow: {
@@ -527,12 +566,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    minHeight: 48,
+    minHeight: 60,
+    paddingHorizontal: 12,
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: COLORS.border,
   },
   addPlaceIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 36,
+    height: 36,
+    borderRadius: RADIUS.sm,
     backgroundColor: COLORS.primaryTint,
     alignItems: 'center',
     justifyContent: 'center',

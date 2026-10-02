@@ -3,13 +3,11 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput } from 
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '../constants/theme';
 import { useBooking } from '../context/BookingContext';
 import { calculateFare } from '../constants/todaRoutes';
-import { MessageSquare, ArrowLeft } from 'lucide-react-native';
-import { CashIcon } from '../components/icons';
+import { MessageSquare, ArrowLeft, Minus, Plus, Banknote, Smartphone } from 'lucide-react-native';
 import TrivoraMap from '../components/TrivoraMap';
 import FloatingIconButton from '../components/FloatingIconButton';
 import Button from '../components/Button';
 import RouteSummaryStrip from '../components/RouteSummaryStrip';
-import PaymentMethodSelector from '../components/PaymentMethodSelector';
 
 const MAP_STRIP_HEIGHT = 200;
 /** Floating back button over the map strip (top offset + size) — its bottom edge is passed to the
@@ -17,8 +15,11 @@ const MAP_STRIP_HEIGHT = 200;
 const BACK_BUTTON_TOP = 10;
 const BACK_BUTTON_SIZE = 38;
 
-const PASSENGER_COUNT_PATTERN = /^[1-9]\d*$/;
-
+/**
+ * Confirm a booked ride: route recap, passengers (stepper), payment method (one row), the fare
+ * breakdown, an optional note, and Confirm with the total beside it — the same building blocks as
+ * the QR ride setup screen, so both ways to ride look and read alike.
+ */
 export default function RideConfirmationScreen() {
   const {
     setScreenState,
@@ -34,49 +35,35 @@ export default function RideConfirmationScreen() {
     setPaymentMethod,
   } = useBooking();
   const [isConfirming, setIsConfirming] = useState(false);
-  const [numberOfPassengers, setNumberOfPassengers] = useState('1');
-  const [errors, setErrors] = useState<{ numberOfPassengers?: string }>({});
+  // A stepper (never free text), so the count is always a whole number of at least 1.
+  const [passengerCount, setPassengerCount] = useState(1);
 
-  const parsedPassengerCount = Number(numberOfPassengers);
-  const isPassengerCountValid = PASSENGER_COUNT_PATTERN.test(numberOfPassengers.trim());
   // The one place this screen computes fare: mirrors FareService on the backend exactly (same
-  // function used everywhere else in the app), fed the real route distance plus whatever
-  // passenger count is currently typed — never a manual multiplication of an already-computed
-  // total. Falls back to 1 passenger for the live preview while the field is mid-edit/invalid;
-  // the Confirm button itself stays gated on isPassengerCountValid regardless.
+  // function used everywhere else in the app), fed the real route distance and the passenger
+  // count. Only a preview — the backend recomputes and stores the authoritative amount from the
+  // same distance and passenger count the moment the booking is confirmed.
   const liveFare = useMemo(
-    () => calculateFare(fareEstimate.distanceKm, undefined, isPassengerCountValid ? parsedPassengerCount : 1),
-    [fareEstimate.distanceKm, isPassengerCountValid, parsedPassengerCount]
+    () => calculateFare(fareEstimate.distanceKm, undefined, passengerCount),
+    [fareEstimate.distanceKm, passengerCount]
   );
   const hasAdditionalDistance = liveFare.distanceKm > 4;
 
-  const validate = () => {
-    const nextErrors: { numberOfPassengers?: string } = {};
-    if (!PASSENGER_COUNT_PATTERN.test(numberOfPassengers.trim())) {
-      nextErrors.numberOfPassengers = 'Enter a whole number of passengers (1 or more)';
-    }
-    setErrors(nextErrors);
-    return Object.keys(nextErrors).length === 0;
-  };
-
   const handleConfirm = async () => {
     if (isConfirming) return;
-    if (!validate()) return;
     setIsConfirming(true);
-    await confirmBooking(parsedPassengerCount, paymentMethod);
+    await confirmBooking(passengerCount, paymentMethod);
     setIsConfirming(false);
   };
 
   return (
     <View style={styles.container}>
-      {/* The map now gets its full height to itself — the pickup/dropoff card used to float
-          on top of it and ended up covering nearly the whole strip, leaving barely a sliver of
-          map actually visible. It's a normal content card below the map instead. */}
       <View style={styles.mapStrip}>
         <TrivoraMap
           pickup={pickup}
           dropoff={dropoff}
           rideState="confirm_fare"
+          mapVariant="bright"
+          pitch={0}
           suggestedRouteInfo={{
             distance: `${fareEstimate.distanceKm} km`,
             duration: `${fareEstimate.durationMinutes} min`,
@@ -99,72 +86,89 @@ export default function RideConfirmationScreen() {
         </FloatingIconButton>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
         <View style={styles.routeCard}>
           <RouteSummaryStrip variant="readonly" pickupLabel={pickup.name} dropoffLabel={dropoff.name} />
         </View>
 
-        {/* Passenger enters both inputs; the total is always derived, never typed directly */}
-        <View style={styles.fareInputsSection}>
-          <View style={styles.fareInputGroup}>
-            <Text style={styles.sectionLabel}>Number of Passengers</Text>
-            <TextInput
-              style={[styles.fareInput, errors.numberOfPassengers && styles.fareInputError]}
-              keyboardType="number-pad"
-              value={numberOfPassengers}
-              onChangeText={(text) => {
-                setNumberOfPassengers(text);
-                if (errors.numberOfPassengers) setErrors((prev) => ({ ...prev, numberOfPassengers: undefined }));
-              }}
-              placeholder="1"
-              placeholderTextColor={COLORS.textMuted}
+        {/* Passengers */}
+        <View style={styles.rowCard}>
+          <View style={styles.flex}>
+            <Text style={styles.rowTitle}>Passengers</Text>
+            <Text style={styles.rowCaption}>Including yourself</Text>
+          </View>
+          <View style={styles.stepper}>
+            <TouchableOpacity
+              style={[styles.stepBtn, passengerCount <= 1 && styles.stepBtnDisabled]}
+              onPress={() => setPassengerCount((n) => Math.max(1, n - 1))}
+              disabled={passengerCount <= 1}
+              accessibilityLabel="Fewer passengers"
+            >
+              <Minus size={16} color={COLORS.primary} />
+            </TouchableOpacity>
+            <Text style={styles.stepValue}>{passengerCount}</Text>
+            <TouchableOpacity
+              style={styles.stepBtn}
+              onPress={() => setPassengerCount((n) => n + 1)}
+              accessibilityLabel="More passengers"
+            >
+              <Plus size={16} color={COLORS.primary} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Payment method — one row, same as the QR ride setup */}
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>Payment Method</Text>
+          <View style={styles.paymentMethodRow}>
+            {([
+              { key: 'cash', label: 'Cash', Icon: Banknote },
+              { key: 'gcash', label: 'GCash', Icon: Smartphone },
+            ] as const).map(({ key, label, Icon }) => {
+              const active = paymentMethod === key;
+              return (
+                <TouchableOpacity
+                  key={key}
+                  style={[styles.paymentMethodCard, active && styles.paymentMethodCardActive]}
+                  onPress={() => setPaymentMethod(key)}
+                  activeOpacity={0.7}
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: active }}
+                >
+                  <Icon size={18} color={active ? COLORS.primary : COLORS.textSecondary} />
+                  <Text style={[styles.paymentMethodText, active && styles.paymentMethodTextActive]}>{label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          <Text style={styles.hint}>
+            {paymentMethod === 'gcash' ? 'Pay with GCash using the QR shown by the driver at drop-off.' : 'Pay the driver in cash at drop-off.'}
+          </Text>
+        </View>
+
+        {/* Fare details */}
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>Fare</Text>
+          <View>
+            <FareLine label="Distance" value={`${Number(liveFare.distanceKm).toFixed(1)} km`} />
+            <FareLine
+              label={liveFare.passengerCount === 1 ? 'Base fare (first 4 km)' : 'Base fare (first 4 km, each)'}
+              value={`₱${liveFare.base.toFixed(2)}`}
             />
-            {errors.numberOfPassengers ? <Text style={styles.errorText}>{errors.numberOfPassengers}</Text> : null}
-          </View>
-        </View>
-
-        {/* Fare is the loudest thing on this screen — everything else is secondary. Base fare is
-            ₱50 flat for 1 passenger, or ₱25 per passenger for 2+, both covering the first 4 km;
-            every km beyond that adds ₱5 per passenger — this preview is only ever a preview: the
-            backend recomputes and stores the authoritative amount from the same distance and
-            passenger count the moment the booking is confirmed. */}
-        <View style={styles.fareHero}>
-          <Text style={styles.fareHeroLabel}>Total Fare</Text>
-          <Text style={styles.fareHeroValue}>₱{liveFare.total.toFixed(2)}</Text>
-          <View style={styles.fareBreakdownRow}>
-            <Text style={styles.fareBreakdownItem}>
-              {liveFare.passengerCount === 1
-                ? `Base fare (up to 4 km): ₱${liveFare.base.toFixed(2)}`
-                : `Base fare (up to 4 km, per passenger): ₱${liveFare.base.toFixed(2)} × ${liveFare.passengerCount}`}
-            </Text>
-          </View>
-          {hasAdditionalDistance && (
-            <View style={styles.fareBreakdownRow}>
-              <Text style={styles.fareBreakdownItem}>
-                Additional distance (₱5.00/km, per passenger): ₱{liveFare.distanceFee.toFixed(2)}
-              </Text>
+            {hasAdditionalDistance && (
+              <FareLine label="Extra distance (₱5.00/km, each)" value={`₱${liveFare.distanceFee.toFixed(2)}`} />
+            )}
+            <FareLine label="Fare per passenger" value={`₱${liveFare.perPassengerFare.toFixed(2)}`} />
+            <FareLine label="Passengers" value={`× ${liveFare.passengerCount}`} />
+            <View style={styles.totalRow}>
+              <Text style={styles.totalLabel}>Total fare</Text>
+              <Text style={styles.totalValue}>₱{liveFare.total.toFixed(2)}</Text>
             </View>
-          )}
-          <View style={styles.fareDivider} />
-          <View style={styles.fareBreakdownRow}>
-            <Text style={styles.fareSummaryItem}>Fare per passenger</Text>
-            <Text style={styles.fareSummaryValue}>₱{liveFare.perPassengerFare.toFixed(2)}</Text>
-          </View>
-          <View style={styles.fareBreakdownRow}>
-            <Text style={styles.fareSummaryItem}>Passenger count</Text>
-            <Text style={styles.fareSummaryValue}>× {liveFare.passengerCount}</Text>
           </View>
         </View>
 
-        {/* Payment Method Selector */}
-        <PaymentMethodSelector
-          selected={paymentMethod}
-          onSelect={setPaymentMethod}
-        />
-
-        {/* Note to driver — always visible, no tap needed to reveal it; the label makes clear
-            it's optional instead of relying on an extra "Add a note" step. */}
-        <View style={styles.noteSection}>
+        {/* Note to driver */}
+        <View style={styles.section}>
           <Text style={styles.sectionLabel}>Note to Driver (Optional)</Text>
           <View style={styles.noteInputRow}>
             <MessageSquare size={16} color={COLORS.textSecondary} />
@@ -180,19 +184,28 @@ export default function RideConfirmationScreen() {
       </ScrollView>
 
       <View style={styles.bottomBar}>
-        {/* The total fare is already shown as its own heading above (fareHero) — no need to
-            repeat it inside the button too. */}
-        <Button label="Confirm Booking" onPress={handleConfirm} loading={isConfirming} />
+        <View style={styles.flex}>
+          <Text style={styles.rowCaption}>Total fare</Text>
+          <Text style={styles.footerAmount}>₱{liveFare.total.toFixed(2)}</Text>
+        </View>
+        <Button label="Confirm Booking" onPress={handleConfirm} loading={isConfirming} fullWidth={false} style={styles.confirmBtn} />
       </View>
     </View>
   );
 }
 
+function FareLine({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.fareLine}>
+      <Text style={styles.fareLabel}>{label}</Text>
+      <Text style={styles.fareValue}>{value}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-  },
+  container: { flex: 1, backgroundColor: COLORS.background },
+  flex: { flex: 1 },
   mapStrip: {
     height: MAP_STRIP_HEIGHT,
     position: 'relative',
@@ -201,11 +214,8 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: RADIUS.xl,
     ...SHADOWS.sm,
   },
-  backButton: {
-    position: 'absolute',
-    top: BACK_BUTTON_TOP,
-    left: SPACING.md,
-  },
+  backButton: { position: 'absolute', top: BACK_BUTTON_TOP, left: SPACING.md },
+  scrollContent: { padding: SPACING.md + 4, gap: SPACING.lg, paddingBottom: SPACING.xl },
   routeCard: {
     backgroundColor: COLORS.surface,
     borderRadius: RADIUS.lg,
@@ -213,126 +223,73 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderWidth: 1,
     borderColor: COLORS.border,
-    ...SHADOWS.sm,
   },
-  scrollContent: {
-    padding: SPACING.md,
+  section: { gap: SPACING.sm },
+  sectionLabel: { ...TYPOGRAPHY.label, color: COLORS.textMuted },
+  hint: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary },
+
+  // Passengers
+  rowCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: SPACING.md,
-    paddingBottom: 30,
-  },
-  fareInputsSection: {
-    flexDirection: 'row',
-    gap: SPACING.md,
-  },
-  fareInputGroup: {
-    flex: 1,
-    gap: 6,
-  },
-  fareInput: {
-    height: 48,
-    backgroundColor: COLORS.surfaceInput,
-    borderRadius: RADIUS.md,
-    borderWidth: 1,
-    borderColor: COLORS.border,
     paddingHorizontal: SPACING.md,
-    ...TYPOGRAPHY.body,
-    color: COLORS.textPrimary,
-  },
-  fareInputError: {
-    borderColor: COLORS.dangerBorder,
-    backgroundColor: COLORS.dangerLight,
-  },
-  errorText: {
-    ...TYPOGRAPHY.caption,
-    color: COLORS.dangerDark,
-  },
-  fareHero: {
-    alignItems: 'center',
-    backgroundColor: COLORS.primaryTint,
-    borderRadius: RADIUS.xl,
-    paddingVertical: SPACING.lg,
-    paddingHorizontal: SPACING.md,
-  },
-  fareHeroLabel: {
-    ...TYPOGRAPHY.caption,
-    color: COLORS.textSecondary,
-  },
-  fareHeroValue: {
-    ...TYPOGRAPHY.display,
-    color: COLORS.primary,
-    marginTop: 2,
-  },
-  fareBreakdownRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    marginTop: 8,
-  },
-  fareBreakdownItem: {
-    ...TYPOGRAPHY.caption,
-    color: COLORS.textSecondary,
-  },
-  fareDivider: {
-    width: '60%',
-    height: 1,
-    backgroundColor: COLORS.border,
-    marginTop: 10,
-  },
-  fareSummaryItem: {
-    ...TYPOGRAPHY.bodySmall,
-    color: COLORS.textSecondary,
-  },
-  fareSummaryValue: {
-    ...TYPOGRAPHY.bodySmall,
-    fontWeight: '700',
-    color: COLORS.textPrimary,
-  },
-  sectionLabel: {
-    ...TYPOGRAPHY.label,
-    color: COLORS.textSecondary,
-    marginTop: 4,
-  },
-  paymentRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: COLORS.surfaceInput,
-    borderRadius: RADIUS.md,
-    paddingHorizontal: SPACING.md,
-    height: 48,
+    paddingVertical: SPACING.sm + 4,
+    borderRadius: RADIUS.lg,
     borderWidth: 1,
     borderColor: COLORS.border,
   },
-  paymentRowText: {
-    ...TYPOGRAPHY.body,
-    color: COLORS.textPrimary,
-    fontWeight: '700',
+  rowTitle: { ...TYPOGRAPHY.bodyLarge, fontWeight: '600', color: COLORS.textPrimary },
+  rowCaption: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary },
+  stepper: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  stepBtn: {
+    width: 36, height: 36, borderRadius: 18,
+    borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface,
+    alignItems: 'center', justifyContent: 'center',
   },
-  noteSection: {
-    gap: 6,
+  stepBtnDisabled: { opacity: 0.35 },
+  stepValue: { ...TYPOGRAPHY.h3, color: COLORS.textPrimary, minWidth: 18, textAlign: 'center' },
+
+  // Payment method
+  paymentMethodRow: { flexDirection: 'row', gap: SPACING.md },
+  paymentMethodCard: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10,
+    padding: SPACING.md, borderRadius: RADIUS.md,
+    borderWidth: 1.5, borderColor: COLORS.border, backgroundColor: COLORS.surface,
   },
+  paymentMethodCardActive: { borderColor: COLORS.primary, backgroundColor: COLORS.primaryTint },
+  paymentMethodText: { ...TYPOGRAPHY.body, fontWeight: '600', color: COLORS.textPrimary },
+  paymentMethodTextActive: { color: COLORS.primary },
+
+  // Fare
+  fareLine: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', minHeight: 34, gap: SPACING.md },
+  fareLabel: { ...TYPOGRAPHY.body, color: COLORS.textSecondary, flexShrink: 1 },
+  fareValue: { ...TYPOGRAPHY.body, fontWeight: '600', color: COLORS.textPrimary },
+  totalRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    borderTopWidth: 1, borderTopColor: COLORS.borderLight,
+    marginTop: SPACING.xs, paddingTop: SPACING.sm + 2,
+  },
+  totalLabel: { ...TYPOGRAPHY.bodyLarge, fontWeight: '700', color: COLORS.textPrimary },
+  totalValue: { ...TYPOGRAPHY.h2, color: COLORS.textPrimary },
+
+  // Note
   noteInputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: COLORS.surfaceInput,
-    borderRadius: RADIUS.md,
-    paddingHorizontal: SPACING.md,
-    height: 48,
-    borderWidth: 1,
-    borderColor: COLORS.border,
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: COLORS.surfaceInput, borderRadius: RADIUS.md,
+    paddingHorizontal: SPACING.md, height: 48,
+    borderWidth: 1, borderColor: COLORS.border,
   },
-  noteInput: {
-    flex: 1,
-    ...TYPOGRAPHY.body,
-    color: COLORS.textPrimary,
-  },
+  noteInput: { flex: 1, ...TYPOGRAPHY.body, color: COLORS.textPrimary },
+
+  // Footer: total beside Confirm, as on the QR ride setup
   bottomBar: {
-    padding: SPACING.md,
+    flexDirection: 'row', alignItems: 'center', gap: SPACING.md,
+    paddingHorizontal: SPACING.md + 4, paddingTop: SPACING.sm + 4, paddingBottom: SPACING.md,
     backgroundColor: COLORS.background,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.border,
+    borderTopWidth: 1, borderTopColor: COLORS.borderLight,
     ...SHADOWS.sheet,
   },
+  footerAmount: { ...TYPOGRAPHY.h1, color: COLORS.textPrimary },
+  confirmBtn: { minWidth: 180 },
 });

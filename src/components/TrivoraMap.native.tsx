@@ -6,7 +6,10 @@ import { Compass, Zap, LocateFixed } from 'lucide-react-native';
 
 import { PICKUP_PIN_IMAGE, DESTINATION_PIN_IMAGE, TRICYCLE_MARKER_IMAGE } from '../constants/mapPins';
 import {
-  CARTO_MAP_STYLE,
+  MAP_STYLES,
+  ACTIVE_RIDE_PITCH,
+  TOP_DOWN_PITCH,
+  MapVariant,
   NO_PADDING,
   PIN_SIZE,
   TRICYCLE_MARKER_SIZE,
@@ -14,7 +17,7 @@ import {
   boundsOf,
   routeLineFeature,
   routeLinePaint,
-} from '../constants/cartoMap';
+} from '../constants/openFreeMap';
 import { TODA_ZONES } from '../constants/todaRoutes';
 import { fetchTodaZones } from '../services/api';
 import { TodaZone } from '../types';
@@ -59,8 +62,23 @@ export default function TrivoraMapNative({
   onRecenter,
   focusCurrentLocation = false,
   currentLocation = null,
+  mapVariant,
+  mapStyleUrl,
+  pitch,
   style,
 }: TrivoraMapProps) {
+  // Map style and camera pitch presentation:
+  // Active booking & ride screens (destination select route, fare confirmation, driver approaching,
+  // or in transit) use OpenFreeMap Liberty in 3D pitched mode (~50°).
+  // Home and ordinary location selection screens use OpenFreeMap Bright in 2D top-down mode (0°).
+  const isActiveRide =
+    rideState === 'in_transit' ||
+    rideState === 'driver_en_route' ||
+    rideState === 'accepted';
+  const effectiveVariant: MapVariant = mapVariant ?? (isActiveRide ? 'liberty' : 'bright');
+  const effectiveMapStyle = mapStyleUrl ?? MAP_STYLES[effectiveVariant];
+  const effectivePitch = pitch ?? (effectiveVariant === 'liberty' || isActiveRide ? ACTIVE_RIDE_PITCH : TOP_DOWN_PITCH);
+
   const [todaList, setTodaList] = useState<TodaZone[]>(TODA_ZONES);
 
   useEffect(() => {
@@ -90,7 +108,7 @@ export default function TrivoraMapNative({
   const centerOnUser = (loc: { lat: number; lng: number }) => {
     followCenterRef.current = loc;
     // Home only, so the chrome padding (the old mapPadding) always applies.
-    cameraRef.current?.easeTo({ center: [loc.lng, loc.lat], zoom: homeZoom, padding: edgePadding, duration: 500 });
+    cameraRef.current?.easeTo({ center: [loc.lng, loc.lat], zoom: homeZoom, padding: edgePadding, pitch: effectivePitch, duration: 500 });
   };
 
   const setFollowing = (on: boolean) => {
@@ -167,7 +185,7 @@ export default function TrivoraMapNative({
             if (i % step === 0 || i === routeCoordinates.length - 1) points.push({ lat: c.lat, lng: c.lng });
           });
         }
-        camera.fitBounds(boundsOf(points), { padding: edgePadding, duration: animated ? 500 : 0 });
+        camera.fitBounds(boundsOf(points), { padding: edgePadding, pitch: effectivePitch, duration: animated ? 500 : 0 });
       } else {
         if (awaitingHomeLocation) return; // no real position yet — framed when the first fix lands
         if (mountedWithoutCenterRef.current) {
@@ -187,11 +205,11 @@ export default function TrivoraMapNative({
               `padding=${JSON.stringify(padding)} zoom=${homeZoom.toFixed(2)}`
           );
         }
-        camera.easeTo({ center: [pinPoint.lng, pinPoint.lat], zoom: homeZoom, padding, duration: animated ? 600 : 0 });
+        camera.easeTo({ center: [pinPoint.lng, pinPoint.lat], zoom: homeZoom, padding, pitch: effectivePitch, duration: animated ? 600 : 0 });
       }
       if (driverLocation) lastFramedRef.current = { lat: driverLocation.lat, lng: driverLocation.lng };
     },
-    [pickup.lat, pickup.lng, dropoff?.lat, dropoff?.lng, isEnRoute, driverLocation?.lat, driverLocation?.lng, edgePadding, routeCoordinates, homeLocation?.lat, homeLocation?.lng, isHomeMap, homeZoom]
+    [pickup.lat, pickup.lng, dropoff?.lat, dropoff?.lng, isEnRoute, driverLocation?.lat, driverLocation?.lng, edgePadding, routeCoordinates, homeLocation?.lat, homeLocation?.lng, isHomeMap, homeZoom, effectivePitch]
   );
 
   // Auto-frame on mount and whenever the destination or ride phase changes — deliberately NOT
@@ -259,8 +277,9 @@ export default function TrivoraMapNative({
     <View style={[styles.container, style]} onLayout={(e) => setMapWidth(e.nativeEvent.layout.width)}>
       <Map
         style={StyleSheet.absoluteFillObject}
-        mapStyle={CARTO_MAP_STYLE}
-        attribution={false}
+        mapStyle={effectiveMapStyle}
+        attribution={true}
+        attributionPosition={{ bottom: 8, left: 8 }}
         logo={false}
         compass={false}
         onDidFinishLoadingMap={() => setMapReady(true)}
@@ -279,14 +298,16 @@ export default function TrivoraMapNative({
           initialViewState={dropoff ? {
             bounds: boundsOf([pickup, dropoff]),
             padding: edgePadding,
+            pitch: effectivePitch,
           } : awaitingHomeLocation ? undefined : {
             center: [(homeLocation ?? pickup).lng, (homeLocation ?? pickup).lat],
             zoom: homeZoom,
             padding: isHomeMap ? edgePadding : NO_PADDING,
+            pitch: effectivePitch,
           }}
         />
 
-        {/* Route: a style layer, so it draws above the CARTO raster and below the markers (which
+        {/* Route: a style layer, so it draws above the OpenFreeMap basemap and below the markers (which
             are native views on top of the map). */}
         {polylineCoords.length > 0 && (
           <GeoJSONSource id="route" data={routeFeature}>
