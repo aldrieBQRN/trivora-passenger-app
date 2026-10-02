@@ -164,6 +164,8 @@ function QrRideView({ ride, topInset }: { ride: QrActiveRide; topInset: number }
         routeCoordinates={mapRoute?.coords ?? []}
         routeSource={mapRoute?.source ?? 'fallback'}
         rideState={isRiding ? 'in_transit' : 'accepted'}
+        mapVariant={isRiding ? 'liberty' : 'bright'}
+        pitch={isRiding ? 50 : 0}
         showRouteBadge={false}
         showCompass={isRiding}
         topInset={topInset + 10}

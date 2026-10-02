@@ -64,6 +64,8 @@ export default function ActiveRideScreen({ topInset = 0 }: ActiveRideScreenProps
           duration: `${fareEstimate.durationMinutes} min`,
         }}
         rideState="in_transit"
+        mapVariant="liberty"
+        pitch={50}
         showCompass={true}
         topInset={topInset + 10 + topOverlayHeight}
         bottomInset={sheetHeight}

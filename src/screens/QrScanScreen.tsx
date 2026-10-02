@@ -74,9 +74,10 @@ export default function QrScanScreen({ topInset = 0 }: QrScanScreenProps) {
           </Text>
           <View style={styles.permActions}>
             {permission.canAskAgain ? (
-              <Button label="Allow Camera" onPress={requestPermission} />
+              // Light button: the navy primary one disappears on the scanner's dark backdrop.
+              <Button label="Allow Camera" variant="secondary" onPress={requestPermission} />
             ) : (
-              <Button label="Open Settings" onPress={() => Linking.openSettings().catch(() => {})} />
+              <Button label="Open Settings" variant="secondary" onPress={() => Linking.openSettings().catch(() => {})} />
             )}
             <TouchableOpacity onPress={closeQr} style={styles.cancelBtn} accessibilityRole="button">
               <Text style={styles.cancelText}>Cancel</Text>

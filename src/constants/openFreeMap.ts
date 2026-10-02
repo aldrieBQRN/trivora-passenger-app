@@ -1,30 +1,25 @@
 import { Dimensions } from 'react-native';
-import type { LngLatBounds, StyleSpecification } from '@maplibre/maplibre-react-native';
+import type { LngLatBounds } from '@maplibre/maplibre-react-native';
 
 /**
- * Native (MapLibre) map setup shared by the booking map (TrivoraMap.native) and Pin Location
- * (PinLocationModal.native). The basemap is CARTO Voyager raster tiles only — no Google Maps SDK,
- * no Google API key. Same tile URL/key/look as the web (Leaflet) map and the Driver app.
+ * OpenFreeMap vector tile styles for MapLibre Native.
+ * OpenFreeMap provides free, open-source vector map tiles powered by OpenStreetMap data.
  */
-export const CARTO_URL_TEMPLATE =
-  'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?key=cb1_3qo7_1_ac41fdc9883213d666d06544';
+export const OPENFREEMAP_BRIGHT_STYLE = 'https://tiles.openfreemap.org/styles/bright';
+export const OPENFREEMAP_LIBERTY_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
 
-export const CARTO_MAP_STYLE: StyleSpecification = {
-  version: 8,
-  sources: {
-    carto: {
-      type: 'raster',
-      tiles: [CARTO_URL_TEMPLATE],
-      tileSize: 256,
-      maxzoom: 19,
-      attribution: '© OpenStreetMap contributors © CARTO',
-    },
-  },
-  layers: [
-    { id: 'background', type: 'background', paint: { 'background-color': '#FAF6EE' } },
-    { id: 'carto', type: 'raster', source: 'carto' },
-  ],
+export type MapVariant = 'bright' | 'liberty';
+
+export const MAP_STYLES: Record<MapVariant, string> = {
+  bright: OPENFREEMAP_BRIGHT_STYLE,
+  liberty: OPENFREEMAP_LIBERTY_STYLE,
 };
+
+/** 3D camera pitch for active ride tracking / navigation screens (approx 45° to 55°). */
+export const ACTIVE_RIDE_PITCH = 50;
+
+/** 2D top-down camera pitch for Home and Pin Location screens. */
+export const TOP_DOWN_PITCH = 0;
 
 export const NO_PADDING = { top: 0, right: 0, bottom: 0, left: 0 };
 
@@ -76,7 +71,7 @@ export function routeLineFeature(coords: { lat: number; lng: number }[]): GeoJSO
 }
 
 /** Route line paint: blue for a real road route, grey [8, 6]dp dashes (in line widths) for the
- * straight-line fallback — same colors/widths as before the MapLibre move. */
+ * straight-line fallback. */
 export function routeLinePaint(isFallback: boolean) {
   return isFallback
     ? { 'line-color': '#94A3B8', 'line-width': 4, 'line-dasharray': [2, 1.5] }

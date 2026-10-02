@@ -2,8 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   StyleSheet,
-  TouchableOpacity,
-  Text,
   Platform,
   StatusBar as RNStatusBar,
 } from 'react-native';
@@ -18,7 +16,7 @@ import { NetworkProvider } from './src/context/NetworkContext';
 import { QrRideProvider, useQrRide } from './src/context/QrRideContext';
 import { ToastProvider } from './src/components/Toast';
 import OfflineBanner from './src/components/OfflineBanner';
-import { COLORS, RADIUS, SPACING } from './src/constants/theme';
+import { COLORS } from './src/constants/theme';
 
 const ONBOARDING_STORAGE_KEY = '@trivora_passenger_onboarding_done';
 
@@ -39,37 +37,16 @@ import QrScanScreen from './src/screens/QrScanScreen';
 import QrRideSetupScreen from './src/screens/QrRideSetupScreen';
 import QrRideScreen from './src/screens/QrRideScreen';
 
-import { Home, Receipt, User, LucideIcon } from 'lucide-react-native';
+import { Home, History, User } from 'lucide-react-native';
+import CurvedTabBar, { CurvedTab } from './src/components/CurvedTabBar';
 
 type TabKey = 'home' | 'trips' | 'profile';
 
-interface TabButtonProps {
-  label: string;
-  icon: LucideIcon;
-  isActive: boolean;
-  onPress: () => void;
-}
-
-/** Same tab interaction as the Driver app: a short indicator line above the icon on the active
- * tab, muted icon/label otherwise — replaces the old pill-highlight treatment for consistency
- * across the two apps. */
-function TabButton({ label, icon: Icon, isActive, onPress }: TabButtonProps) {
-  return (
-    <TouchableOpacity
-      style={styles.tabButton}
-      onPress={onPress}
-      activeOpacity={0.6}
-      accessibilityRole="button"
-      accessibilityState={{ selected: isActive }}
-    >
-      <View style={styles.tabIndicatorTrack}>
-        {isActive && <View style={styles.tabIndicator} />}
-      </View>
-      <Icon size={22} color={isActive ? COLORS.primary : COLORS.textMuted} strokeWidth={isActive ? 2.2 : 1.8} />
-      <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>{label}</Text>
-    </TouchableOpacity>
-  );
-}
+const TABS: CurvedTab<TabKey>[] = [
+  { key: 'home', label: 'Home', icon: Home },
+  { key: 'trips', label: 'Rides', icon: History },
+  { key: 'profile', label: 'Profile', icon: User },
+];
 
 function PassengerAppNavigator() {
   const { isAuthenticated, isRestoring, login } = useAuth();
@@ -271,31 +248,12 @@ function PassengerAppNavigator() {
             Tricycle" action, so the tab bar no longer needs a center FAB for it, matching
             the Driver app's flat tab-bar layout. */}
         {isTabVisible && (
-          <View
-            style={[
-              styles.tabBar,
-              { paddingBottom: Math.max(safeBottom, Platform.OS === 'ios' ? 24 : 14) },
-            ]}
-          >
-            <TabButton
-              label="Home"
-              icon={Home}
-              isActive={activeTab === 'home'}
-              onPress={() => setActiveTab('home')}
-            />
-            <TabButton
-              label="Rides"
-              icon={Receipt}
-              isActive={activeTab === 'trips'}
-              onPress={() => setActiveTab('trips')}
-            />
-            <TabButton
-              label="Profile"
-              icon={User}
-              isActive={activeTab === 'profile'}
-              onPress={() => setActiveTab('profile')}
-            />
-          </View>
+          <CurvedTabBar
+            tabs={TABS}
+            activeKey={activeTab}
+            onSelect={setActiveTab}
+            bottomInset={Math.max(safeBottom, Platform.OS === 'ios' ? 22 : 12)}
+          />
         )}
       </View>
     </View>
@@ -333,44 +291,5 @@ const styles = StyleSheet.create({
   },
   screenViewport: {
     flex: 1,
-  },
-  tabBar: {
-    flexDirection: 'row',
-    backgroundColor: COLORS.background,
-    paddingTop: 8,
-    paddingHorizontal: SPACING.xs,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.border,
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    minHeight: Platform.OS === 'ios' ? 62 : 64,
-  },
-  tabButton: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-    paddingVertical: 4,
-    gap: 5,
-  },
-  tabIndicatorTrack: {
-    height: 3,
-    width: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tabIndicator: {
-    height: 3,
-    width: 20,
-    borderRadius: RADIUS.full,
-    backgroundColor: COLORS.primary,
-  },
-  tabLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: COLORS.textMuted,
-  },
-  tabLabelActive: {
-    color: COLORS.primary,
-    fontWeight: '700',
   },
 });

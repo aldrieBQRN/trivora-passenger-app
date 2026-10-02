@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { Image, StyleSheet } from 'react-native';
 import { Map, Camera, Marker, GeoJSONSource, Layer, type CameraRef } from '@maplibre/maplibre-react-native';
 import { PICKUP_PIN_IMAGE, DESTINATION_PIN_IMAGE } from '../constants/mapPins';
-import { CARTO_MAP_STYLE, PIN_SIZE, deltaToZoom, routeLineFeature, routeLinePaint, boundsOf } from '../constants/cartoMap';
+import { OPENFREEMAP_BRIGHT_STYLE, TOP_DOWN_PITCH, PIN_SIZE, deltaToZoom, routeLineFeature, routeLinePaint, boundsOf } from '../constants/openFreeMap';
 import { LocationPoint } from '../types';
 import { usePinLocation } from '../hooks/usePinLocation';
 import PinLocationSheet from './PinLocationSheet';
@@ -61,6 +61,7 @@ function PinLocationModalContent({
       cameraRef.current?.easeTo({
         center: [pinnedLocation.lng, pinnedLocation.lat],
         zoom: pinZoom,
+        pitch: TOP_DOWN_PITCH,
         duration: initialCenter ? 600 : 0,
       });
     }
@@ -95,12 +96,13 @@ function PinLocationModalContent({
       }
       cameraRef.current?.fitBounds(boundsOf(points), {
         padding: { top: 110, right: 32, bottom: 220, left: 32 },
+        pitch: TOP_DOWN_PITCH,
         duration: 500,
       });
     } else if (pinnedLocation) {
-      cameraRef.current?.easeTo({ center: [pinnedLocation.lng, pinnedLocation.lat], zoom: pinZoom, duration: 600 });
+      cameraRef.current?.easeTo({ center: [pinnedLocation.lng, pinnedLocation.lat], zoom: pinZoom, pitch: TOP_DOWN_PITCH, duration: 600 });
     } else if (currentPickup) {
-      cameraRef.current?.easeTo({ center: [currentPickup.lng, currentPickup.lat], zoom: pinZoom, duration: 600 });
+      cameraRef.current?.easeTo({ center: [currentPickup.lng, currentPickup.lat], zoom: pinZoom, pitch: TOP_DOWN_PITCH, duration: 600 });
     }
   };
 
@@ -120,18 +122,19 @@ function PinLocationModalContent({
     >
       <Map
         style={StyleSheet.absoluteFillObject}
-        mapStyle={CARTO_MAP_STYLE}
-        attribution={false}
+        mapStyle={OPENFREEMAP_BRIGHT_STYLE}
+        attribution={true}
+        attributionPosition={{ bottom: 8, left: 8 }}
         logo={false}
         compass={false}
         onPress={handlePress}
       >
         <Camera
           ref={cameraRef}
-          initialViewState={initialCenter ? { center: [initialCenter.lng, initialCenter.lat], zoom: pinZoom } : undefined}
+          initialViewState={initialCenter ? { center: [initialCenter.lng, initialCenter.lat], zoom: pinZoom, pitch: TOP_DOWN_PITCH } : undefined}
         />
 
-        {/* Route: a style layer above the CARTO raster, below the pins (native views). */}
+        {/* Route: a style layer above the OpenFreeMap basemap, below the pins (native views). */}
         {routeCoordinates.length > 0 && (
           <GeoJSONSource id="pin-route" data={routeLineFeature(routeCoordinates)}>
             <Layer
