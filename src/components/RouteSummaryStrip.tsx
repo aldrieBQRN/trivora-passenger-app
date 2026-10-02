@@ -7,6 +7,8 @@ interface RouteSummaryStripProps {
   pickupLabel: string;
   dropoffLabel: string;
   variant?: 'editable' | 'readonly';
+  /** Bold addresses for dense lists (Ride History) — same as the Driver app's RouteTimeline `compact`. */
+  compact?: boolean;
   onPressPickup?: () => void;
   onPressDropoff?: () => void;
 }
@@ -21,6 +23,7 @@ export default function RouteSummaryStrip({
   pickupLabel,
   dropoffLabel,
   variant = 'readonly',
+  compact = false,
   onPressPickup,
   onPressDropoff,
 }: RouteSummaryStripProps) {
@@ -45,7 +48,7 @@ export default function RouteSummaryStrip({
         >
           <View style={styles.rowTextCol}>
             <Text style={styles.rowLabel}>Pick-up</Text>
-            <Text style={styles.rowValue} numberOfLines={1}>
+            <Text style={[styles.rowValue, compact && styles.rowValueCompact]} numberOfLines={1}>
               {pickupLabel}
             </Text>
           </View>
@@ -63,7 +66,7 @@ export default function RouteSummaryStrip({
           <View style={styles.rowTextCol}>
             <Text style={styles.rowLabel}>Destination</Text>
             <Text
-              style={[styles.rowValue, !dropoffLabel && styles.rowValuePlaceholder]}
+              style={[styles.rowValue, compact && styles.rowValueCompact, !dropoffLabel && styles.rowValuePlaceholder]}
               numberOfLines={1}
             >
               {dropoffLabel || 'Select destination'}
@@ -128,6 +131,9 @@ const styles = StyleSheet.create({
     ...TYPOGRAPHY.body,
     color: COLORS.textPrimary,
     marginTop: 1,
+  },
+  rowValueCompact: {
+    fontWeight: '700',
   },
   rowValuePlaceholder: {
     color: COLORS.textMuted,

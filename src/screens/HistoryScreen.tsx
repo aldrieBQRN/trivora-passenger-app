@@ -4,10 +4,10 @@ import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '../constants/theme';
 import { useBooking } from '../context/BookingContext';
 import { HistoryItem, TripReceipt } from '../types';
 import { ChevronRight, Receipt, Star } from 'lucide-react-native';
+import RouteSummaryStrip from '../components/RouteSummaryStrip';
 import { calculateFare } from '../constants/todaRoutes';
 import TripReceiptModal from '../components/TripReceiptModal';
 import EmptyState from '../components/EmptyState';
-import RouteSummaryStrip from '../components/RouteSummaryStrip';
 import ScreenHeader from '../components/ScreenHeader';
 import FilterTabs from '../components/FilterTabs';
 
@@ -74,15 +74,17 @@ export default function HistoryScreen({ onBackToMap: _onBackToMap }: HistoryScre
       farePerPassenger: fareBreakdown.perPassengerFare,
       passengerCount: historyPassengerCount,
       totalFare: item.fare,
-      paymentMethod: 'cash',
-      driverName: item.driverName || 'Juan Dela Cruz',
-      plateNumber: item.plateNumber || 'ABC 1234',
-      codingNumber: '04-128',
-      todaName: 'TODA Bucana',
+      paymentMethod: item.paymentMethod || 'cash',
+      paymentReference: item.paymentReference,
+      paymentStatus: item.paymentStatus,
+      driverName: item.driverName || '',
+      plateNumber: item.plateNumber || '',
+      codingNumber: item.stickerNumber || '',
       mtopNumber: '',
     });
   };
 
+  // Plain list row: pick-up -> destination with pins on the left, fare / status / rating on the right.
   const renderRideItem = ({ item }: { item: HistoryItem }) => {
     const isCompleted = item.status === 'Completed';
 
@@ -91,48 +93,42 @@ export default function HistoryScreen({ onBackToMap: _onBackToMap }: HistoryScre
         style={styles.row}
         onPress={() => openReceiptForHistory(item)}
         activeOpacity={isCompleted ? 0.7 : 1}
+        accessibilityRole={isCompleted ? 'button' : undefined}
+        accessibilityLabel={`${item.status} trip to ${item.dropoff}, ₱${item.fare.toFixed(2)}${isCompleted ? '. Open receipt' : ''}`}
       >
         <View style={styles.routeCol}>
-          <RouteSummaryStrip variant="readonly" pickupLabel={item.pickup} dropoffLabel={item.dropoff} />
+          <RouteSummaryStrip variant="readonly" compact pickupLabel={item.pickup} dropoffLabel={item.dropoff} />
           {(!!item.driverName || !!item.time || item.isWalkIn) && (
-            <Text style={styles.metaText}>
+            <Text style={styles.metaText} numberOfLines={1}>
               {[item.isWalkIn ? 'Scan to Ride' : null, item.driverName, item.time].filter(Boolean).join(' · ')}
             </Text>
           )}
         </View>
 
         <View style={styles.fareStatusCol}>
-          <Text style={[styles.fareAmount, !isCompleted && styles.fareAmountInert]}>
-            ₱{item.fare.toFixed(2)}
-          </Text>
-          <View
-            style={[
-              styles.statusTag,
-              { backgroundColor: isCompleted ? COLORS.successLight : COLORS.dangerLight },
-            ]}
-          >
-            <Text
-              style={[
-                styles.statusText,
-                { color: isCompleted ? COLORS.emerald : COLORS.dangerDark },
-              ]}
-            >
-              {item.status}
-            </Text>
+          <Text style={[styles.fareAmount, !isCompleted && styles.fareAmountInert]}>₱{item.fare.toFixed(2)}</Text>
+          <View style={[styles.statusTag, isCompleted ? styles.statusTagDone : styles.statusTagCancelled]}>
+            <Text style={[styles.statusText, { color: isCompleted ? COLORS.success : COLORS.dangerDark }]}>{item.status}</Text>
           </View>
           {isCompleted && (
             item.rating ? (
               <View style={styles.ratingRow}>
-                <Star size={11} color={COLORS.amber} fill={COLORS.amber} />
+                <Star size={12} color={COLORS.amber} fill={COLORS.amber} />
                 <Text style={styles.ratingText}>{item.rating.toFixed(1)}</Text>
               </View>
             ) : (
-              <TouchableOpacity onPress={() => startRatingBooking(item.id)} activeOpacity={0.7}>
-                <Text style={styles.rateLink}>Rate Driver</Text>
+              <TouchableOpacity
+                style={styles.rateBtn}
+                onPress={() => startRatingBooking(item.id)}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={`Rate the driver of your trip to ${item.dropoff}`}
+              >
+                <Text style={styles.rateLink}>Rate driver</Text>
               </TouchableOpacity>
             )
           )}
-          {isCompleted && <ChevronRight size={16} color={COLORS.textMuted} style={styles.chevron} />}
+          {isCompleted && <ChevronRight size={16} color={COLORS.textMuted} />}
         </View>
       </TouchableOpacity>
     );
@@ -194,9 +190,9 @@ const styles = StyleSheet.create({
   },
   dateHeader: {
     ...TYPOGRAPHY.label,
-    color: COLORS.textSecondary,
+    color: COLORS.textMuted,
     marginBottom: SPACING.sm,
-    marginTop: SPACING.sm,
+    marginTop: SPACING.md,
   },
   row: {
     flexDirection: 'row',
@@ -208,6 +204,7 @@ const styles = StyleSheet.create({
   },
   routeCol: {
     flex: 1,
+    minWidth: 0,
   },
   metaText: {
     ...TYPOGRAPHY.caption,
@@ -216,23 +213,36 @@ const styles = StyleSheet.create({
   },
   fareStatusCol: {
     alignItems: 'flex-end',
-    gap: 4,
+    gap: 6,
   },
   fareAmount: {
     ...TYPOGRAPHY.bodyLarge,
+    fontWeight: '700',
     color: COLORS.textPrimary,
   },
   fareAmountInert: {
-    color: COLORS.textSecondary,
+    color: COLORS.textMuted,
+    textDecorationLine: 'line-through',
   },
+  // Same badge as the Driver app's StatusBadge: tinted pill with a matching hairline border.
   statusTag: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: RADIUS.xs,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: RADIUS.full,
+    borderWidth: 1,
+  },
+  statusTagDone: {
+    backgroundColor: COLORS.successLight,
+    borderColor: COLORS.successBorder,
+  },
+  statusTagCancelled: {
+    backgroundColor: COLORS.dangerLight,
+    borderColor: COLORS.dangerBorder,
   },
   statusText: {
-    ...TYPOGRAPHY.micro,
-    fontSize: 9,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
   ratingRow: {
     flexDirection: 'row',
@@ -240,15 +250,20 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   ratingText: {
-    ...TYPOGRAPHY.micro,
-    color: COLORS.textSecondary,
+    ...TYPOGRAPHY.caption,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+  },
+  rateBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: RADIUS.full,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
   rateLink: {
-    ...TYPOGRAPHY.micro,
+    ...TYPOGRAPHY.caption,
     color: COLORS.primary,
-    fontWeight: '800',
-  },
-  chevron: {
-    marginTop: 2,
+    fontWeight: '700',
   },
 });

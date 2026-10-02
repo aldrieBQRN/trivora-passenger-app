@@ -134,6 +134,12 @@ export interface HistoryItem {
   passengerCount?: number;
   /** True for a QR Ride / walk-in trip (booking_type = qr_walkin). */
   isWalkIn?: boolean;
+  paymentMethod?: PaymentMethod;
+  paymentStatus?: PaymentStatus | string;
+  /** GCash reference the driver recorded, when paid by GCash. */
+  paymentReference?: string | null;
+  /** The tricycle's municipal Sticker Number, when on record. */
+  stickerNumber?: string | null;
 }
 
 export interface UserProfile {
@@ -175,6 +181,10 @@ export interface TripReceipt {
   passengerCount: number;
   totalFare: number;
   paymentMethod: PaymentMethod;
+  /** GCash reference the driver recorded, when paid by GCash. */
+  paymentReference?: string | null;
+  /** When known and not 'paid', the receipt shows the fare as pending instead of paid. */
+  paymentStatus?: PaymentStatus | string;
   driverName: string;
   plateNumber: string;
   codingNumber: string;

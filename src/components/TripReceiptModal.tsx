@@ -1,17 +1,13 @@
 import React from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  Modal,
-  TouchableOpacity,
-  ScrollView,
-  Platform,
-} from 'react-native';
-import { COLORS, RADIUS, SHADOWS, SPACING, BUTTONS, TYPOGRAPHY } from '../constants/theme';
+import { View, Text, StyleSheet, Modal, ScrollView, Pressable, Platform } from 'react-native';
+import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '../constants/theme';
 import { TripReceipt } from '../types';
-import { X, ShieldCheck, MapPin, Share2, CheckCircle2 } from 'lucide-react-native';
+import { X, Share2, CheckCircle2, Banknote, Smartphone, Clock } from 'lucide-react-native';
 import { useToast } from './Toast';
+import FloatingIconButton from './FloatingIconButton';
+import Button from './Button';
+import RouteSummaryStrip from './RouteSummaryStrip';
+import { shareText } from '../utils/shareTrip';
 
 interface TripReceiptModalProps {
   visible: boolean;
@@ -19,418 +15,259 @@ interface TripReceiptModalProps {
   receipt: TripReceipt;
 }
 
-export default function TripReceiptModal({
-  visible,
-  onClose,
-  receipt,
-}: TripReceiptModalProps) {
-  const { showToast } = useToast();
+const peso = (n: number) => `₱${n.toFixed(2)}`;
 
-  const handleShare = () => {
-    showToast(`Receipt ${receipt.bookingCode} exported — link saved to clipboard.`);
+/**
+ * Trip e-receipt sheet (Ride History and the completed-trip page): the amount paid up top, then
+ * the trip, the fare computation and the driver/unit details, each as plain label-value rows.
+ * Fields with nothing on record show "—" — values are never invented.
+ */
+export default function TripReceiptModal({ visible, onClose, receipt }: TripReceiptModalProps) {
+  const { showToast } = useToast();
+  const isGcash = receipt.paymentMethod === 'gcash';
+  const methodLabel = isGcash ? 'GCash' : 'Cash';
+  // Unknown status (older receipts) counts as paid, as before; a known non-paid status doesn't.
+  const isPaid = !receipt.paymentStatus || receipt.paymentStatus === 'paid';
+
+  const handleShare = async () => {
+    const message = [
+      `Trivora e-receipt ${receipt.bookingCode}`,
+      `${receipt.date} · ${receipt.time}`,
+      `From: ${receipt.pickup}`,
+      `To: ${receipt.dropoff}`,
+      `${isPaid ? 'Total paid' : 'Fare'}: ${peso(receipt.totalFare)} (${methodLabel}${isPaid ? '' : ', payment pending'})`,
+      receipt.driverName ? `Driver: ${receipt.driverName}` : null,
+      receipt.plateNumber ? `Plate No.: ${receipt.plateNumber}` : null,
+    ]
+      .filter(Boolean)
+      .join('\n');
+    const result = await shareText(`Trivora e-receipt ${receipt.bookingCode}`, message);
+    if (result === 'copied') showToast('Receipt copied to clipboard.');
+    else if (result === 'unavailable') showToast("Couldn't share the receipt on this device.", 'info');
   };
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.overlay}>
-        <View style={styles.modalSheet}>
+        {/* Tap outside the sheet to close */}
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close receipt" />
+
+        <View style={styles.sheet}>
+          <View style={styles.handle} />
+
           {/* Header */}
           <View style={styles.header}>
-            <View style={styles.titleGroup}>
-              <ShieldCheck size={20} color={COLORS.primary} />
-              <Text style={styles.headerTitle}>Official E-Receipt</Text>
+            <View style={styles.flex}>
+              <Text style={styles.headerTitle}>E-Receipt</Text>
+              <Text style={styles.headerSub}>Municipality of Nasugbu · Tricycle Regulatory Board</Text>
             </View>
-            <TouchableOpacity style={styles.closeBtn} onPress={onClose} activeOpacity={0.7}>
-              <X size={20} color={COLORS.textPrimary} />
-            </TouchableOpacity>
+            <FloatingIconButton size={36} onPress={onClose} accessibilityLabel="Close" style={styles.closeBtn}>
+              <X size={18} color={COLORS.textPrimary} />
+            </FloatingIconButton>
           </View>
 
-          <ScrollView contentContainerStyle={styles.scrollBody}>
-            {/* Municipal Stamp Banner */}
-            <View style={styles.stampCard}>
-              <View style={styles.sealRow}>
-                <View style={styles.sealBadge}>
-                  <Text style={styles.sealText}>MUNICIPALITY OF NASUGBU</Text>
-                  <Text style={styles.sealSub}>Tricycle Regulatory Board • MTOP</Text>
+          <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+            {/* Amount paid */}
+            <View style={styles.hero}>
+              <Text style={styles.heroLabel}>{isPaid ? 'Total paid' : 'Fare'}</Text>
+              <Text style={styles.heroAmount}>{peso(receipt.totalFare)}</Text>
+              {isPaid ? (
+                <View style={styles.paidPill}>
+                  <CheckCircle2 size={13} color={COLORS.emerald} />
+                  <Text style={styles.paidPillText}>Paid via {methodLabel}</Text>
                 </View>
-              </View>
-
-              <Text style={styles.bookingCodeText}>{receipt.bookingCode}</Text>
-              <Text style={styles.dateTimeText}>
-                {receipt.date} • {receipt.time}
+              ) : (
+                <View style={[styles.paidPill, styles.pendingPill]}>
+                  <Clock size={13} color={COLORS.warning} />
+                  <Text style={[styles.paidPillText, styles.pendingPillText]}>Payment pending · {methodLabel}</Text>
+                </View>
+              )}
+              <Text style={styles.heroMeta}>
+                {receipt.bookingCode} · {receipt.date} · {receipt.time}
               </Text>
-
-              <View style={styles.certifiedPill}>
-                <CheckCircle2 size={12} color={COLORS.success} />
-                <Text style={styles.certifiedText}>Government Verified Transit Record</Text>
-              </View>
             </View>
 
-            {/* Route Summary */}
-            <View style={styles.sectionCard}>
-              <Text style={styles.sectionTitle}>Ride Itinerary</Text>
+            {/* Trip */}
+            <Section title="Trip">
+              <RouteSummaryStrip variant="readonly" pickupLabel={receipt.pickup} dropoffLabel={receipt.dropoff} />
+              <Row label="Distance" value={`${Number(receipt.distanceKm).toFixed(1)} km`} />
+              {receipt.durationMinutes > 0 ? <Row label="Duration" value={`~${receipt.durationMinutes} min`} /> : null}
+            </Section>
 
-              <View style={styles.stopRow}>
-                <MapPin size={15} color="#2563EB" />
-                <View style={styles.stopDetails}>
-                  <Text style={styles.stopMicro}>Pick-up</Text>
-                  <Text style={styles.stopAddress}>{receipt.pickup}</Text>
-                </View>
-              </View>
-
-              <View style={styles.stopLine} />
-
-              <View style={styles.stopRow}>
-                <MapPin size={15} color={COLORS.danger} />
-                <View style={styles.stopDetails}>
-                  <Text style={styles.stopMicro}>Destination</Text>
-                  <Text style={styles.stopAddress}>{receipt.dropoff}</Text>
-                </View>
-              </View>
-
-              <View style={styles.metricsRow}>
-                <Text style={styles.metricsText}>
-                  Distance: <Text style={styles.boldVal}>{receipt.distanceKm} km</Text>
-                </Text>
-                <Text style={styles.metricsText}>
-                  Duration: <Text style={styles.boldVal}>{receipt.durationMinutes} min</Text>
-                </Text>
-              </View>
-            </View>
-
-            {/* Fare Breakdown — base fare covers the first 4 km: ₱50 flat for 1 passenger, or ₱25
-                per passenger for 2+. Every km beyond 4 adds ₱5 per passenger, billed continuously.
-                The additional-distance line only appears when the trip actually went past 4 km,
-                and the passenger-count line only when more than one rider was on the fare. */}
-            <View style={styles.sectionCard}>
-              <Text style={styles.sectionTitle}>Fare Computation</Text>
-
-              <View style={styles.fareRow}>
-                <Text style={styles.fareLabel}>
-                  {receipt.passengerCount === 1 ? 'Base fare (up to 4 km)' : 'Base fare (up to 4 km, per passenger)'}
-                </Text>
-                <Text style={styles.fareValue}>₱{receipt.baseFare.toFixed(2)}</Text>
-              </View>
-
+            {/* Fare — base covers the first 4 km; each km beyond adds ₱5 per passenger. */}
+            <Section title="Fare">
+              <Row
+                label={receipt.passengerCount === 1 ? 'Base fare (first 4 km)' : 'Base fare (first 4 km, per passenger)'}
+                value={peso(receipt.baseFare)}
+              />
               {receipt.distanceKm > 4 && (
-                <View style={styles.fareRow}>
-                  <Text style={styles.fareLabel}>Additional distance (₱5.00/km, per passenger)</Text>
-                  <Text style={styles.fareValue}>₱{receipt.distanceFee.toFixed(2)}</Text>
-                </View>
+                <Row label="Additional distance (per passenger)" value={peso(receipt.distanceFee)} />
               )}
-
-              <View style={styles.fareRow}>
-                <Text style={styles.fareLabel}>Fare per passenger</Text>
-                <Text style={styles.fareValue}>₱{receipt.farePerPassenger.toFixed(2)}</Text>
-              </View>
-
-              {receipt.passengerCount > 1 && (
-                <View style={styles.fareRow}>
-                  <Text style={styles.fareLabel}>Passengers</Text>
-                  <Text style={styles.fareValue}>× {receipt.passengerCount}</Text>
-                </View>
-              )}
-
-              <View style={styles.divider} />
-
+              <Row label="Fare per passenger" value={peso(receipt.farePerPassenger)} />
+              <Row label="Passengers" value={`× ${receipt.passengerCount}`} />
               <View style={styles.totalRow}>
-                <View>
-                  <Text style={styles.totalLabel}>Total Amount Paid</Text>
-                  <Text style={styles.paymentMethodLabel}>
-                    Method: {receipt.paymentMethod.toUpperCase()}
-                  </Text>
-                </View>
-                <Text style={styles.totalAmount}>₱{receipt.totalFare.toFixed(2)}</Text>
+                <Text style={styles.totalLabel}>Total</Text>
+                <Text style={styles.totalValue}>{peso(receipt.totalFare)}</Text>
               </View>
-            </View>
+            </Section>
 
-            {/* Operator & Franchise Info */}
-            <View style={styles.sectionCard}>
-              <Text style={styles.sectionTitle}>Operator & Unit Information</Text>
-
-              <View style={styles.infoGrid}>
-                <View style={styles.gridItem}>
-                  <Text style={styles.gridLabel}>Authorized Driver</Text>
-                  <Text style={styles.gridVal}>{receipt.driverName}</Text>
-                </View>
-
-                <View style={styles.gridItem}>
-                  <Text style={styles.gridLabel}>Sticker Number</Text>
-                  <Text style={styles.gridVal}>{receipt.codingNumber || '—'}</Text>
-                </View>
-
-                <View style={styles.gridItem}>
-                  <Text style={styles.gridLabel}>Plate Number</Text>
-                  <Text style={styles.gridVal}>{receipt.plateNumber}</Text>
-                </View>
-
-                <View style={styles.gridItem}>
-                  <Text style={styles.gridLabel}>MTOP Franchise #</Text>
-                  <Text style={styles.gridVal}>{receipt.mtopNumber}</Text>
+            {/* Payment */}
+            <Section title="Payment">
+              <View style={styles.row}>
+                <Text style={styles.rowLabel}>Method</Text>
+                <View style={styles.methodValue}>
+                  {isGcash ? <Smartphone size={14} color={COLORS.primary} /> : <Banknote size={14} color={COLORS.primary} />}
+                  <Text style={styles.rowValue}>{methodLabel}</Text>
                 </View>
               </View>
-            </View>
+              {isGcash && receipt.paymentReference ? <Row label="GCash reference" value={receipt.paymentReference} /> : null}
+            </Section>
 
-            {/* Action Buttons */}
-            <View style={styles.actionRow}>
-              <TouchableOpacity style={styles.shareBtn} onPress={handleShare} activeOpacity={0.8}>
-                <Share2 size={16} color={COLORS.primary} />
-                <Text style={styles.shareBtnText}>Share E-Receipt</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.doneBtn} onPress={onClose} activeOpacity={0.88}>
-                <Text style={styles.doneBtnText}>Close</Text>
-              </TouchableOpacity>
-            </View>
+            {/* Driver & unit */}
+            <Section title="Driver & tricycle">
+              <Row label="Driver" value={receipt.driverName || '—'} />
+              <Row label="Plate number" value={receipt.plateNumber || '—'} />
+              <Row label="Sticker number" value={receipt.codingNumber || '—'} />
+              {receipt.mtopNumber ? <Row label="MTOP franchise no." value={receipt.mtopNumber} /> : null}
+            </Section>
           </ScrollView>
+
+          {/* Actions pinned to the bottom */}
+          <View style={styles.footer}>
+            <View style={styles.flex}>
+              <Button label="Share" icon={Share2} variant="secondary" onPress={handleShare} />
+            </View>
+            <View style={styles.flex}>
+              <Button label="Done" onPress={onClose} />
+            </View>
+          </View>
         </View>
       </View>
     </Modal>
   );
 }
 
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>{title}</Text>
+      {children}
+    </View>
+  );
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.row}>
+      <Text style={styles.rowLabel}>{label}</Text>
+      <Text style={styles.rowValue} numberOfLines={1}>{value}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  flex: { flex: 1 },
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.65)',
+    backgroundColor: 'rgba(15, 23, 42, 0.55)',
     justifyContent: 'flex-end',
   },
-  modalSheet: {
+  sheet: {
     backgroundColor: COLORS.background,
     borderTopLeftRadius: RADIUS.xxl,
     borderTopRightRadius: RADIUS.xxl,
-    maxHeight: '90%',
-    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+    maxHeight: '92%',
     ...SHADOWS.sheet,
+  },
+  handle: {
+    alignSelf: 'center',
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: COLORS.border,
+    marginTop: SPACING.sm,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: SPACING.sm,
     paddingHorizontal: SPACING.lg,
-    paddingTop: SPACING.md,
+    paddingTop: SPACING.sm + 2,
     paddingBottom: SPACING.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.borderLight,
   },
-  titleGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  headerTitle: {
-    ...TYPOGRAPHY.h3,
-    color: COLORS.textPrimary,
-  },
+  headerTitle: { ...TYPOGRAPHY.h2, color: COLORS.textPrimary },
+  headerSub: { ...TYPOGRAPHY.caption, color: COLORS.textMuted, marginTop: 1 },
   closeBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
     backgroundColor: COLORS.backgroundSubtle,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  scrollBody: {
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.md,
-    gap: 14,
-  },
-  stampCard: {
-    alignItems: 'center',
-    backgroundColor: COLORS.surfaceInput,
-    padding: SPACING.md,
-    borderRadius: RADIUS.lg,
     borderWidth: 1,
-    borderColor: COLORS.border,
-    gap: 4,
+    borderColor: COLORS.borderLight,
+    shadowOpacity: 0,
+    elevation: 0,
   },
-  sealRow: {
+  body: {
+    paddingHorizontal: SPACING.lg,
+    paddingBottom: SPACING.lg,
+    gap: SPACING.lg,
+  },
+
+  // Amount paid
+  hero: {
     alignItems: 'center',
-    marginBottom: 4,
+    paddingVertical: SPACING.lg,
+    borderRadius: RADIUS.lg,
+    backgroundColor: COLORS.backgroundSubtle,
+    borderWidth: 1,
+    borderColor: COLORS.borderLight,
+    gap: 6,
   },
-  sealBadge: {
-    alignItems: 'center',
-  },
-  sealText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: COLORS.primary,
-    letterSpacing: 0.8,
-  },
-  sealSub: {
-    fontSize: 8,
-    color: COLORS.textSecondary,
-    fontWeight: '600',
-  },
-  bookingCodeText: {
-    fontSize: 18,
-    fontWeight: '900',
-    color: COLORS.textPrimary,
-    letterSpacing: 1,
-  },
-  dateTimeText: {
-    fontSize: 11,
-    color: COLORS.textSecondary,
-    fontWeight: '500',
-  },
-  certifiedPill: {
+  heroLabel: { ...TYPOGRAPHY.label, color: COLORS.textMuted },
+  heroAmount: { ...TYPOGRAPHY.display, color: COLORS.textPrimary },
+  paidPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: RADIUS.full,
     backgroundColor: COLORS.successLight,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: RADIUS.xs,
-    marginTop: 4,
   },
-  certifiedText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: COLORS.success,
-  },
-  sectionCard: {
-    backgroundColor: COLORS.surface,
-    padding: SPACING.md,
-    borderRadius: RADIUS.lg,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    gap: 8,
-  },
-  sectionTitle: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: COLORS.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 2,
-  },
-  stopRow: {
+  paidPillText: { ...TYPOGRAPHY.caption, fontWeight: '600', color: COLORS.emerald },
+  pendingPill: { backgroundColor: COLORS.warningLight },
+  pendingPillText: { color: COLORS.warning },
+  heroMeta: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary, marginTop: 2 },
+
+  // Sections
+  section: { gap: SPACING.xs },
+  sectionTitle: { ...TYPOGRAPHY.label, color: COLORS.textMuted, marginBottom: 2 },
+  row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-  },
-  stopDetails: {
-    flex: 1,
-  },
-  stopMicro: {
-    ...TYPOGRAPHY.micro,
-    color: COLORS.textSecondary,
-  },
-  stopAddress: {
-    ...TYPOGRAPHY.caption,
-    fontWeight: '700',
-    color: COLORS.textPrimary,
-  },
-  stopLine: {
-    width: 1.5,
-    height: 14,
-    backgroundColor: COLORS.border,
-    marginLeft: 7,
-  },
-  metricsRow: {
-    flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.borderLight,
-    marginTop: 4,
+    gap: SPACING.md,
+    minHeight: 32,
   },
-  metricsText: {
-    ...TYPOGRAPHY.caption,
-    color: COLORS.textSecondary,
-  },
-  boldVal: {
-    fontWeight: '700',
-    color: COLORS.textPrimary,
-  },
-  fareRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  fareLabel: {
-    ...TYPOGRAPHY.bodySmall,
-    color: COLORS.textSecondary,
-  },
-  fareValue: {
-    ...TYPOGRAPHY.bodySmall,
-    fontWeight: '700',
-    color: COLORS.textPrimary,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: COLORS.border,
-    marginVertical: 4,
-  },
+  rowLabel: { ...TYPOGRAPHY.body, color: COLORS.textSecondary, flexShrink: 1 },
+  rowValue: { ...TYPOGRAPHY.body, fontWeight: '600', color: COLORS.textPrimary, flexShrink: 1, textAlign: 'right' },
+  methodValue: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   totalRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    marginTop: SPACING.xs,
+    paddingTop: SPACING.sm + 2,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.borderLight,
   },
-  totalLabel: {
-    ...TYPOGRAPHY.h3,
-    color: COLORS.textPrimary,
-  },
-  paymentMethodLabel: {
-    ...TYPOGRAPHY.micro,
-    color: COLORS.primary,
-  },
-  totalAmount: {
-    ...TYPOGRAPHY.h2,
-    color: COLORS.primary,
-  },
-  infoGrid: {
+  totalLabel: { ...TYPOGRAPHY.bodyLarge, fontWeight: '700', color: COLORS.textPrimary },
+  totalValue: { ...TYPOGRAPHY.h2, color: COLORS.textPrimary },
+
+  footer: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-  },
-  gridItem: {
-    width: '47%',
-  },
-  gridLabel: {
-    ...TYPOGRAPHY.micro,
-    color: COLORS.textSecondary,
-  },
-  gridVal: {
-    ...TYPOGRAPHY.caption,
-    fontWeight: '700',
-    color: COLORS.textPrimary,
-    marginTop: 1,
-  },
-  actionRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 8,
-  },
-  shareBtn: {
-    flex: 1,
-    height: BUTTONS.touchHeight,
-    borderRadius: RADIUS.lg,
-    borderWidth: 1,
-    borderColor: COLORS.primary,
-    backgroundColor: COLORS.primaryTint,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-  },
-  shareBtnText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: COLORS.primary,
-  },
-  doneBtn: {
-    flex: 1,
-    height: BUTTONS.touchHeight,
-    borderRadius: RADIUS.lg,
-    backgroundColor: COLORS.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...SHADOWS.sm,
-  },
-  doneBtnText: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: COLORS.textInverse,
+    gap: SPACING.sm,
+    paddingHorizontal: SPACING.lg,
+    paddingTop: SPACING.sm + 4,
+    paddingBottom: Platform.OS === 'ios' ? 34 : SPACING.md,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.borderLight,
   },
 });

@@ -375,7 +375,9 @@ export function BookingProvider({ children }: { children: ReactNode }) {
   const [paymentReference, setPaymentReference] = useState<string | null>(null);
   const [noteToDriver, setNoteToDriver] = useState<string>('');
   const [activeDriver, setActiveDriver] = useState<DriverProfile>(DEFAULT_DRIVER);
-  const [historyList, setHistoryList] = useState<HistoryItem[]>(INITIAL_HISTORY);
+  // Demo rides only in simulated mode — a real account starts empty and shows its own rides once
+  // loaded, never placeholder trips (which used to show while the request was slow or failing).
+  const [historyList, setHistoryList] = useState<HistoryItem[]>(BOOKING_MODE === 'real' ? [] : INITIAL_HISTORY);
   const [searchCountdown, setSearchCountdown] = useState<number>(REAL_SEARCH_CYCLE_SECONDS);
   const [searchStatusText, setSearchStatusText] = useState<string>('Searching for a driver...');
   const [dispatchState, setDispatchState] = useState<'searching' | 'driver_found' | null>(null);
