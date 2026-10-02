@@ -35,13 +35,16 @@ export function buildTripShareText(d: TripShareDetails): string {
  * browser has it, otherwise copies the text to the clipboard.
  */
 export async function shareTripDetails(details: TripShareDetails): Promise<ShareTripResult> {
-  const message = buildTripShareText(details);
+  return shareText('Trivora trip details', buildTripShareText(details));
+}
 
+/** Shares plain text: native share sheet, Web Share API, or clipboard copy on web. */
+export async function shareText(title: string, message: string): Promise<ShareTripResult> {
   if (Platform.OS === 'web') {
     const nav: any = typeof navigator !== 'undefined' ? navigator : null;
     try {
       if (nav?.share) {
-        await nav.share({ title: 'Trivora trip details', text: message });
+        await nav.share({ title, text: message });
         return 'shared';
       }
     } catch (e: any) {
@@ -60,7 +63,7 @@ export async function shareTripDetails(details: TripShareDetails): Promise<Share
   }
 
   try {
-    await Share.share({ message, title: 'Trivora trip details' });
+    await Share.share({ message, title });
     return 'shared';
   } catch {
     return 'unavailable';

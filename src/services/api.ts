@@ -378,6 +378,10 @@ export function mapBookingRecordToHistoryItem(raw: any): HistoryItem {
     rating: raw.rating?.score != null ? Number(raw.rating.score) : null,
     passengerCount: Number(raw.passenger_count ?? 1),
     isWalkIn: raw.booking_type === 'qr_walkin',
+    paymentMethod: raw.payment_method === 'gcash' ? 'gcash' : 'cash',
+    paymentStatus: raw.payment_status || undefined,
+    paymentReference: raw.payment_reference || null,
+    stickerNumber: raw.tricycle?.coding_scheme_number || null,
   };
 }
 
