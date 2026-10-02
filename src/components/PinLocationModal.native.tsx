@@ -54,6 +54,7 @@ function PinLocationModalContent({
   const initialCenter = useRef(
     pinnedLocation || (currentPickup ? currentPickup : { lat: 14.0718, lng: 120.6325 })
   ).current;
+
   const wasAwaitingRef = useRef(awaitingLocation);
   useEffect(() => {
     if (wasAwaitingRef.current && !awaitingLocation && pinnedLocation) {

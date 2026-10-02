@@ -31,6 +31,16 @@ export interface LocationPoint {
   terminalName?: string;
 }
 
+export interface NearbyPlace {
+  id: string;
+  name: string;
+  category: string;
+  category_label?: string;
+  latitude: number;
+  longitude: number;
+  address?: string;
+}
+
 /** A passenger's saved destination shortcut — backed by the real `saved_places` table, always
  * carrying the exact coordinates confirmed when it was created/edited. */
 export interface SavedPlace {

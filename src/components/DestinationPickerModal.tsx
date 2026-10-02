@@ -12,7 +12,7 @@ import {
   KeyboardAvoidingView,
 } from 'react-native';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '../constants/theme';
-import { POPULAR_DESTINATIONS, calculateDistance } from '../constants/todaRoutes';
+import { calculateDistance } from '../constants/todaRoutes';
 import { searchPlaces, PlaceSearchResult } from '../services/routingService';
 import { useSavedPlaces } from '../context/SavedPlacesContext';
 import { LocationPoint } from '../types';
@@ -21,12 +21,7 @@ import {
   Search,
   MapPin,
   Navigation,
-  Building2,
-  ShoppingBag,
-  Hospital,
-  Anchor,
   School,
-  TreePine,
   ChevronRight,
   Home,
   Briefcase,
@@ -35,6 +30,9 @@ import {
 import PinLocationModal from './PinLocationModal';
 import FilterTabs from './FilterTabs';
 import SavedPlacesScreen from '../screens/SavedPlacesScreen';
+import PlaceCategoryChips from './PlaceCategoryChips';
+import { useNearbyPlaces } from '../hooks/useNearbyPlaces';
+import { getCategoryDefinition } from '../constants/placeCategories';
 
 type PlacesTab = 'saved' | 'suggested';
 
@@ -76,6 +74,23 @@ export default function DestinationPickerModal({
 }: DestinationPickerModalProps) {
   const isPickup = mode === 'pickup';
   const { savedPlaces } = useSavedPlaces();
+
+  const searchCenter = currentLocation
+    ? { lat: currentLocation.lat, lng: currentLocation.lng }
+    : initialLocation
+    ? { lat: initialLocation.lat, lng: initialLocation.lng }
+    : { lat: 14.0718, lng: 120.6325 };
+
+  const {
+    selectedCategory,
+    setSelectedCategory,
+    places: nearbyPlaces,
+    isLoading: isLoadingNearby,
+  } = useNearbyPlaces({
+    searchCenter,
+    enabled: visible,
+    initialCategory: 'all',
+  });
 
   const [searchQuery, setSearchQuery] = useState('');
   const [placesTab, setPlacesTab] = useState<PlacesTab>('suggested');
@@ -120,6 +135,7 @@ export default function DestinationPickerModal({
   useEffect(() => {
     if (visible) {
       setSearchQuery('');
+      setSelectedCategory('all');
       setPlacesTab(initialPlacesTab);
       setShowSavedPlacesOverlay(false);
     }
@@ -127,27 +143,6 @@ export default function DestinationPickerModal({
 
   const isSaved = !isPickup && placesTab === 'saved';
 
-  // One restrained icon colour for every category — the icon's shape tells the category apart,
-  // not six unrelated hues competing with the brand and the semantic status colours.
-  const getPlaceIcon = (place: LocationPoint) => {
-    const iconProps = { size: 17, color: COLORS.primary };
-    switch (place.category) {
-      case 'Government':
-        return <Building2 {...iconProps} />;
-      case 'Market':
-        return <ShoppingBag {...iconProps} />;
-      case 'Hospital':
-        return <Hospital {...iconProps} />;
-      case 'Harbor':
-        return <Anchor {...iconProps} />;
-      case 'School':
-        return <School {...iconProps} />;
-      case 'Leisure':
-        return <TreePine {...iconProps} />;
-      default:
-        return <MapPin {...iconProps} />;
-    }
-  };
 
   const handleSelectSearchResult = (result: PlaceSearchResult) => {
     onSelect({ name: result.name, address: result.address, lat: result.lat, lng: result.lng, category: 'Search' });
@@ -234,7 +229,7 @@ export default function DestinationPickerModal({
             </TouchableOpacity>
           )}
 
-          {/* Saved vs Suggested — destination only; Saved Places are destination shortcuts. */}
+          {/* Main 2 Tabs: [ Suggested | Saved Places ] */}
           {!isPickup && !isSearchMode && (
             <View style={styles.placesTabRow}>
               <FilterTabs
@@ -244,7 +239,6 @@ export default function DestinationPickerModal({
               />
             </View>
           )}
-
 
           {isSearchMode ? (
             <>
@@ -284,13 +278,11 @@ export default function DestinationPickerModal({
                 />
               )}
             </>
-          ) : (
+          ) : !isPickup && placesTab === 'saved' ? (
             <>
               <View style={styles.sectionHeaderRow}>
-                <Text style={[styles.listSectionLabel, styles.sectionHeaderLabel]}>
-                  {isPickup ? 'Suggested Pick-up Points' : isSaved ? 'Your Saved Places' : 'Suggested Places'}
-                </Text>
-                {!isPickup && isSaved && savedPlaces.length > 0 && (
+                <Text style={[styles.listSectionLabel, styles.sectionHeaderLabel]}>Your Saved Places</Text>
+                {savedPlaces.length > 0 && (
                   <TouchableOpacity style={styles.seeAllBtn} onPress={handleSeeAllSavedPlaces} activeOpacity={0.7}>
                     <Text style={styles.seeAllBtnText}>See All</Text>
                     <ChevronRight size={14} color={COLORS.primary} />
@@ -298,86 +290,135 @@ export default function DestinationPickerModal({
                 )}
               </View>
 
-              {!isPickup && isSaved ? (
-                <FlatList
-                  data={savedPlaces}
-                  keyExtractor={(item) => String(item.id)}
-                  contentContainerStyle={styles.listContent}
-                  keyboardShouldPersistTaps="handled"
-                  ListEmptyComponent={
-                    <View style={styles.searchStatusBox}>
-                      <Text style={styles.emptyText}>Save places you visit often for faster booking.</Text>
-                      <TouchableOpacity style={styles.emptyAddBtn} onPress={handleSeeAllSavedPlaces} activeOpacity={0.8}>
-                        <Text style={styles.emptyAddBtnText}>Manage Saved Places</Text>
-                        <ChevronRight size={14} color="#FFFFFF" />
-                      </TouchableOpacity>
+              <FlatList
+                data={savedPlaces}
+                keyExtractor={(item) => String(item.id)}
+                contentContainerStyle={styles.listContent}
+                keyboardShouldPersistTaps="handled"
+                ListEmptyComponent={
+                  <View style={styles.searchStatusBox}>
+                    <Text style={styles.emptyText}>Save places you visit often for faster booking.</Text>
+                    <TouchableOpacity style={styles.emptyAddBtn} onPress={handleSeeAllSavedPlaces} activeOpacity={0.8}>
+                      <Text style={styles.emptyAddBtnText}>Manage Saved Places</Text>
+                      <ChevronRight size={14} color="#FFFFFF" />
+                    </TouchableOpacity>
+                  </View>
+                }
+                renderItem={({ item: place }) => (
+                  <TouchableOpacity
+                    style={styles.placeItem}
+                    onPress={() => {
+                      onSelect({ name: place.label, address: place.address, lat: place.lat, lng: place.lng, category: 'Saved' });
+                      onClose();
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.placeIconBox}>
+                      {React.createElement(SAVED_PLACE_ICONS[place.label] || Bookmark, {
+                        size: 16,
+                        color: COLORS.primary,
+                      })}
                     </View>
-                  }
-                  renderItem={({ item: place }) => (
+
+                    <View style={styles.placeInfoCol}>
+                      <Text style={styles.placeName}>{place.label}</Text>
+                      <Text style={styles.placeAddress} numberOfLines={1}>{place.address}</Text>
+                    </View>
+
+                    <ChevronRight size={18} color={COLORS.textMuted} />
+                  </TouchableOpacity>
+                )}
+              />
+            </>
+          ) : (
+            /* Suggested Places tab (with category filter and nearby place discovery) */
+            <>
+              {/* Category Filter Chips inside Suggested */}
+              <View style={styles.categoryChipsWrapper}>
+                <PlaceCategoryChips
+                  selectedCategory={selectedCategory}
+                  onSelectCategory={setSelectedCategory}
+                  isLoading={isLoadingNearby}
+                />
+              </View>
+
+              <View style={styles.sectionHeaderRow}>
+                <Text style={[styles.listSectionLabel, styles.sectionHeaderLabel]}>
+                  {isPickup
+                    ? 'Suggested Pick-up Points'
+                    : selectedCategory === 'all'
+                    ? 'All Nearby Places'
+                    : `Nearby ${getCategoryDefinition(selectedCategory).label}`}
+                </Text>
+              </View>
+
+              <FlatList
+                data={nearbyPlaces}
+                keyExtractor={(item, idx) => `${item.id || item.name}-${idx}`}
+                contentContainerStyle={styles.listContent}
+                keyboardShouldPersistTaps="handled"
+                ListEmptyComponent={
+                  isLoadingNearby ? (
+                    <View style={styles.searchStatusBox}>
+                      <ActivityIndicator color={COLORS.primary} />
+                      <Text style={styles.emptyText}>
+                        {selectedCategory === 'all'
+                          ? 'Finding nearby places in Nasugbu…'
+                          : `Finding nearby ${getCategoryDefinition(selectedCategory).label.toLowerCase()}…`}
+                      </Text>
+                    </View>
+                  ) : (
+                    <View style={styles.searchStatusBox}>
+                      <Text style={styles.emptyText}>
+                        {selectedCategory === 'all'
+                          ? 'No nearby places found.'
+                          : `No ${getCategoryDefinition(selectedCategory).label.toLowerCase()} found nearby.`}
+                      </Text>
+                    </View>
+                  )
+                }
+                renderItem={({ item }) => {
+                  const catDef = getCategoryDefinition(item.category || selectedCategory);
+                  const CatIcon = catDef.icon;
+                  const distKm = currentLocation
+                    ? calculateDistance(currentLocation, { name: item.name, lat: item.latitude, lng: item.longitude })
+                    : null;
+
+                  return (
                     <TouchableOpacity
                       style={styles.placeItem}
                       onPress={() => {
-                        onSelect({ name: place.label, address: place.address, lat: place.lat, lng: place.lng, category: 'Saved' });
+                        onSelect({
+                          name: item.name,
+                          address: item.address || 'Nasugbu, Batangas',
+                          lat: item.latitude,
+                          lng: item.longitude,
+                          category: catDef.label,
+                        });
                         onClose();
                       }}
                       activeOpacity={0.7}
                     >
-                      <View style={styles.placeIconBox}>
-                        {React.createElement(SAVED_PLACE_ICONS[place.label] || Bookmark, {
-                          size: 16,
-                          color: COLORS.primary,
-                        })}
+                      <View style={[styles.placeIconBox, { backgroundColor: catDef.tintColor || COLORS.primaryTint }]}>
+                        <CatIcon size={17} color={catDef.color} />
                       </View>
 
                       <View style={styles.placeInfoCol}>
-                        <Text style={styles.placeName}>{place.label}</Text>
-                        <Text style={styles.placeAddress} numberOfLines={1}>{place.address}</Text>
+                        <Text style={styles.placeName}>{item.name}</Text>
+                        <Text style={styles.placeAddress} numberOfLines={1}>
+                          {item.address || 'Nasugbu, Batangas'}
+                        </Text>
                       </View>
 
-                      <ChevronRight size={18} color={COLORS.textMuted} />
-                    </TouchableOpacity>
-                  )}
-                />
-              ) : (
-                <FlatList
-                  data={POPULAR_DESTINATIONS}
-                  keyExtractor={(item) => item.name}
-                  contentContainerStyle={styles.listContent}
-                  keyboardShouldPersistTaps="handled"
-                  renderItem={({ item: place }) => {
-                    const dist = currentLocation ? calculateDistance(currentLocation, place) : null;
-
-                    return (
-                      <TouchableOpacity
-                        style={styles.placeItem}
-                        onPress={() => {
-                          onSelect(place);
-                          onClose();
-                        }}
-                        activeOpacity={0.7}
-                      >
-                        <View style={styles.placeIconBox}>{getPlaceIcon(place)}</View>
-
-                        <View style={styles.placeInfoCol}>
-                          <Text style={styles.placeName}>{place.name}</Text>
-                          <Text style={styles.placeAddress} numberOfLines={1}>
-                            {place.address || 'Nasugbu, Batangas'}
-                          </Text>
-                        </View>
-
+                      {distKm != null && (
                         <View style={styles.placeMetaCol}>
-                          {dist != null && <Text style={styles.placeDistance}>{dist} km</Text>}
-                          {place.zoneCode && (
-                            <View style={styles.zoneBadge}>
-                              <Text style={styles.zoneBadgeText}>{place.zoneCode.replace('TODA-', '')}</Text>
-                            </View>
-                          )}
+                          <Text style={styles.placeDistance}>{distKm} km</Text>
                         </View>
-                      </TouchableOpacity>
-                    );
-                  }}
-                />
-              )}
+                      )}
+                    </TouchableOpacity>
+                  );
+                }}
+              />
             </>
           )}
         </View>
@@ -467,6 +508,13 @@ const styles = StyleSheet.create({
     ...TYPOGRAPHY.body,
     fontSize: 15,
     color: COLORS.textPrimary,
+  },
+  categoryChipsWrapper: {
+    marginTop: SPACING.sm,
+    marginBottom: SPACING.xs,
+  },
+  headerLoader: {
+    marginRight: SPACING.lg,
   },
   placesTabRow: {
     // FilterTabs already bakes in SPACING.md (16) of its own horizontal padding; adding just

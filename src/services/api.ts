@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
-import { DriverProfile, UserProfile, HistoryItem, SavedPlace, TodaZone, QrScanResult, QrQuote, QrActiveRide } from '../types';
+import { DriverProfile, UserProfile, HistoryItem, SavedPlace, TodaZone, QrScanResult, QrQuote, QrActiveRide, NearbyPlace } from '../types';
 import { TODA_ZONES } from '../constants/todaRoutes';
 
 function getDefaultApiBaseUrl(): string {
@@ -383,4 +383,36 @@ export function mapBookingRecordToHistoryItem(raw: any): HistoryItem {
 
 export async function fetchTodaZones(): Promise<TodaZone[]> {
   return [];
+}
+
+export interface NearbyPlacesResponse {
+  status: string;
+  data: NearbyPlace[];
+  meta?: {
+    center?: { latitude: number; longitude: number };
+    radius?: number;
+    category?: string;
+    attribution?: string;
+  };
+}
+
+export async function fetchNearbyPlaces(params: {
+  latitude: number;
+  longitude: number;
+  radius?: number;
+  category?: string;
+}): Promise<NearbyPlace[]> {
+  try {
+    const qs = new URLSearchParams({
+      latitude: params.latitude.toString(),
+      longitude: params.longitude.toString(),
+      radius: (params.radius || 2000).toString(),
+      category: params.category || 'all',
+    });
+    const res = await request<NearbyPlacesResponse>(`/places/nearby?${qs.toString()}`);
+    return res && Array.isArray(res.data) ? res.data : [];
+  } catch (err) {
+    console.warn('[NearbyPlaces] Failed to fetch nearby places:', err);
+    return [];
+  }
 }
