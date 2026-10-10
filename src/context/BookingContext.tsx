@@ -23,6 +23,7 @@ import { passengerApi, mapBookingDriverToProfile, mapBookingRecordToHistoryItem,
 import { useToast } from '../components/Toast';
 import { useAuth } from './AuthContext';
 import { useCurrentLocation } from '../hooks/useCurrentLocation';
+import { getEcho, DriverLocationEventPayload } from '../services/echoService';
 
 export type PickupMode = 'current_location' | 'manual';
 
@@ -981,6 +982,101 @@ export function BookingProvider({ children }: { children: ReactNode }) {
     setLiveDriverLocation(interpolateAlongRoute(routeCoordinates, progress));
   }, [screenState, tripRemainingKm, routeCoordinates, tripRouteTotalKm]);
 
+  // Tracks authoritative recorded_at timestamp of the latest applied driver coordinate fix,
+  // ensuring newer WebSocket events are never overwritten by an older in-flight polling tick.
+  const lastDriverLocationTimestampRef = useRef<number>(0);
+
+  useEffect(() => {
+    lastDriverLocationTimestampRef.current = 0;
+  }, [realBookingId]);
+
+  const handleDriverPositionUpdate = useCallback(
+    (
+      driverPos: { lat: number; lng: number },
+      rawHeading: unknown,
+      recordedAt?: string | null,
+      phase: 'pickup' | 'transit' = 'pickup',
+      isArrived: boolean = false
+    ) => {
+      // 1. Guard against stale coordinates (ignore older timestamps)
+      if (recordedAt) {
+        const ts = Date.parse(recordedAt);
+        if (Number.isFinite(ts) && ts > 0) {
+          if (ts < lastDriverLocationTimestampRef.current) {
+            if (__DEV__) {
+              console.log(`[driver-location] Stale timestamp ignored: ${ts} < ${lastDriverLocationTimestampRef.current}`);
+            }
+            return;
+          }
+          lastDriverLocationTimestampRef.current = ts;
+        }
+      }
+
+      // 2. Resolve heading
+      const fallbackBearing =
+        phase === 'transit'
+          ? bearingDegrees(driverPos, { lat: dropoff.lat, lng: dropoff.lng })
+          : bearingDegrees(driverPos, { lat: pickup.lat, lng: pickup.lng });
+      const heading = resolveDriverHeading(
+        rawHeading,
+        fallbackBearing,
+        phase === 'transit' ? 'driver->dropoff' : 'driver->pickup'
+      );
+
+      // 3. Update live location state without duplicate re-renders
+      setLiveDriverLocation((prev) => {
+        if (prev && prev.lat === driverPos.lat && prev.lng === driverPos.lng && prev.heading === heading) {
+          return prev;
+        }
+        return { ...driverPos, heading };
+      });
+
+      // 4. Update ETA/distance and road route when moving
+      if (phase === 'pickup') {
+        const distanceKm = Number(calculateDistance({ name: '', ...driverPos }, pickup).toFixed(1));
+        setActiveDriver((prev) => ({
+          ...prev,
+          distanceKm,
+          etaMinutes: Math.max(1, Math.round((distanceKm / 20) * 60)),
+        }));
+        if (isArrived) {
+          setDriverDistanceKm(0);
+          setDriverEtaMinutes(0);
+        } else {
+          setDriverDistanceKm(Math.max(0.1, distanceKm));
+          setDriverEtaMinutes(Math.max(1, Math.round((distanceKm / 20) * 60)));
+        }
+
+        const lastOrigin = driverRouteOriginRef.current;
+        const movedFarEnough = !lastOrigin || haversineKm(lastOrigin, driverPos) >= DRIVER_ROUTE_REROUTE_THRESHOLD_KM;
+        if (movedFarEnough) {
+          driverRouteOriginRef.current = driverPos;
+          const requestId = ++driverRouteRequestIdRef.current;
+          fetchRoute(driverPos, { lat: pickup.lat, lng: pickup.lng }).then((result) => {
+            if (requestId !== driverRouteRequestIdRef.current) return;
+            setDriverRouteCoordinates(result.coordinates);
+            setDriverRouteSource(result.source);
+            setDriverRouteTotalKm(result.distanceKm);
+          });
+        }
+      } else {
+        const lastOrigin = dropoffRouteOriginRef.current;
+        const movedFarEnough = !lastOrigin || haversineKm(lastOrigin, driverPos) >= DRIVER_ROUTE_REROUTE_THRESHOLD_KM;
+        if (movedFarEnough) {
+          dropoffRouteOriginRef.current = driverPos;
+          const requestId = ++dropoffRouteRequestIdRef.current;
+          fetchRoute(driverPos, { lat: dropoff.lat, lng: dropoff.lng }).then((result) => {
+            if (requestId !== dropoffRouteRequestIdRef.current) return;
+            setRouteCoordinates(result.coordinates);
+            setRouteSource(result.source);
+            setTripRemainingKm(result.distanceKm);
+          });
+        }
+      }
+    },
+    [pickup, dropoff]
+  );
+
   // Real-mode active-booking polling: the single loop that discovers pending -> accepted ->
   // arrived -> in_transit -> completed/cancelled transitions from the backend and drives
   // screenState/activeDriver accordingly. Runs only while there's a real booking to track —
@@ -1063,32 +1159,14 @@ export function BookingProvider({ children }: { children: ReactNode }) {
         }
 
         if (isPickupPhase && hasRealDriverFix) {
-          // The driver's REAL backend position — never the passenger's own location, never
-          // pickup, never a synthesized/simulated point.
           const driverPos = { lat: Number(booking.driver.current_lat), lng: Number(booking.driver.current_lng) };
-          const heading = resolveDriverHeading(
+          handleDriverPositionUpdate(
+            driverPos,
             (booking.driver as any)?.heading_deg,
-            bearingDegrees(driverPos, { lat: pickup.lat, lng: pickup.lng }),
-            'driver->pickup'
+            booking.driver.last_location_updated_at || (booking.driver as any)?.recorded_at,
+            'pickup',
+            booking.status === 'arrived'
           );
-          setLiveDriverLocation({ ...driverPos, heading });
-
-          // Refetch the real road route only once the driver has moved meaningfully from where
-          // it was last fetched (or this is the first fix for this booking) — not on every poll
-          // tick, which would spam the routing service and fight the map's own camera framing
-          // with a route update on every 4s tick even when nothing actually changed.
-          const lastOrigin = driverRouteOriginRef.current;
-          const movedFarEnough = !lastOrigin || haversineKm(lastOrigin, driverPos) >= DRIVER_ROUTE_REROUTE_THRESHOLD_KM;
-          if (movedFarEnough) {
-            driverRouteOriginRef.current = driverPos;
-            const requestId = ++driverRouteRequestIdRef.current;
-            fetchRoute(driverPos, { lat: pickup.lat, lng: pickup.lng }).then((result) => {
-              if (requestId !== driverRouteRequestIdRef.current) return;
-              setDriverRouteCoordinates(result.coordinates);
-              setDriverRouteSource(result.source);
-              setDriverRouteTotalKm(result.distanceKm);
-            });
-          }
         } else if (!isPickupPhase) {
           // Leaving the pickup phase (in_transit/completed) — reset so a later new booking's
           // first poll doesn't skip its route fetch because of a stale origin from this ride.
@@ -1096,33 +1174,14 @@ export function BookingProvider({ children }: { children: ReactNode }) {
         }
 
         if (isTransitPhase && hasRealDriverFix) {
-          // Same live-tracking pattern as the pickup phase above, now aimed at the dropoff —
-          // the tricycle marker follows the driver's real position toward pickup while en
-          // route, then toward the destination once in transit, instead of freezing wherever it
-          // was when the ride started.
           const driverPos = { lat: Number(booking.driver.current_lat), lng: Number(booking.driver.current_lng) };
-          const heading = resolveDriverHeading(
+          handleDriverPositionUpdate(
+            driverPos,
             (booking.driver as any)?.heading_deg,
-            bearingDegrees(driverPos, { lat: dropoff.lat, lng: dropoff.lng }),
-            'driver->dropoff'
+            booking.driver.last_location_updated_at || (booking.driver as any)?.recorded_at,
+            'transit',
+            false
           );
-          setLiveDriverLocation({ ...driverPos, heading });
-
-          const lastOrigin = dropoffRouteOriginRef.current;
-          const movedFarEnough = !lastOrigin || haversineKm(lastOrigin, driverPos) >= DRIVER_ROUTE_REROUTE_THRESHOLD_KM;
-          if (movedFarEnough) {
-            dropoffRouteOriginRef.current = driverPos;
-            const requestId = ++dropoffRouteRequestIdRef.current;
-            fetchRoute(driverPos, { lat: dropoff.lat, lng: dropoff.lng }).then((result) => {
-              if (requestId !== dropoffRouteRequestIdRef.current) return;
-              // Reusing routeCoordinates/routeSource — ActiveRideScreen already reads these as
-              // "the route to draw"; in real mode nothing else needs the original static
-              // pickup->dropoff planned route once the ride is actually in transit.
-              setRouteCoordinates(result.coordinates);
-              setRouteSource(result.source);
-              setTripRemainingKm(result.distanceKm);
-            });
-          }
         } else if (isTransitPhase) {
           // No driver GPS fix yet this tick — fall back to the full trip distance so
           // ActiveRideScreen's `hasArrivedDestination = tripRemainingKm <= 0` check doesn't read
@@ -1203,7 +1262,64 @@ export function BookingProvider({ children }: { children: ReactNode }) {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [realBookingId, isAuthenticated]);
+  }, [realBookingId, isAuthenticated, handleDriverPositionUpdate]);
+
+  // Real-mode Reverb WebSocket subscription for live driver location updates
+  useEffect(() => {
+    if (
+      BOOKING_MODE !== 'real' ||
+      !realBookingId ||
+      !isAuthenticated ||
+      (screenState !== 'driver_en_route' && screenState !== 'in_transit')
+    ) {
+      return;
+    }
+
+    let isSubscribed = true;
+    const echo = getEcho();
+    const channelName = `booking.${realBookingId}`;
+
+    if (__DEV__) {
+      console.log(`[Reverb] Subscribing to private-${channelName} for driver location updates`);
+    }
+
+    const channel = echo.private(channelName);
+
+    const onLocationUpdated = (data: DriverLocationEventPayload) => {
+      if (!isSubscribed) return;
+      if (Number(data.booking_id) !== Number(realBookingId)) return;
+
+      if (__DEV__) {
+        console.log(`[Reverb] DriverLocationUpdated received on ${channelName}:`, data);
+      }
+
+      handleDriverPositionUpdate(
+        { lat: Number(data.latitude), lng: Number(data.longitude) },
+        data.heading_deg,
+        data.recorded_at,
+        screenState === 'in_transit' ? 'transit' : 'pickup',
+        screenState === 'driver_en_route' && driverDistanceKm <= 0
+      );
+    };
+
+    channel.listen('.DriverLocationUpdated', onLocationUpdated);
+    channel.listen('DriverLocationUpdated', onLocationUpdated);
+
+    return () => {
+      isSubscribed = false;
+      if (__DEV__) {
+        console.log(`[Reverb] Unsubscribing from ${channelName}`);
+      }
+      try {
+        channel.stopListening('.DriverLocationUpdated', onLocationUpdated);
+        channel.stopListening('DriverLocationUpdated', onLocationUpdated);
+        echo.leave(channelName);
+        echo.leave(`private-${channelName}`);
+      } catch {
+        // ignore cleanup error
+      }
+    };
+  }, [realBookingId, isAuthenticated, screenState, driverDistanceKm, handleDriverPositionUpdate]);
 
   // Entry point for rating an already-completed ride from Ride History (as opposed to the
   // immediate post-ride flow, which sets bookingIdToRate itself the moment the active-booking

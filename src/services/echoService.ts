@@ -1,0 +1,127 @@
+import Echo from 'laravel-echo';
+import Pusher from 'pusher-js';
+import { getApiBaseUrl, getAuthToken } from './api';
+
+// In React Native / mobile environment, expose Pusher globally so Echo finds it
+if (typeof window !== 'undefined') {
+  (window as any).Pusher = Pusher;
+} else if (typeof global !== 'undefined') {
+  (global as any).Pusher = Pusher;
+}
+
+export interface DriverLocationEventPayload {
+  booking_id: number;
+  driver_id: number;
+  tricycle_id: number;
+  latitude: number;
+  longitude: number;
+  heading_deg: number | null;
+  recorded_at: string;
+}
+
+let echoInstance: Echo<'reverb'> | null = null;
+
+function getReverbHost(): string {
+  const envHost = process.env.EXPO_PUBLIC_REVERB_HOST?.trim();
+  if (envHost) return envHost;
+
+  const apiUrl = getApiBaseUrl();
+  const match = apiUrl.match(/^https?:\/\/([^/:]+)/i);
+  return match ? match[1] : '127.0.0.1';
+}
+
+function getReverbPort(): number {
+  const envPort = process.env.EXPO_PUBLIC_REVERB_PORT;
+  if (envPort) {
+    const p = parseInt(envPort, 10);
+    if (!isNaN(p)) return p;
+  }
+  return 8080;
+}
+
+function getReverbScheme(): 'http' | 'https' {
+  const envScheme = process.env.EXPO_PUBLIC_REVERB_SCHEME;
+  if (envScheme === 'https' || envScheme === 'http') return envScheme;
+  const apiUrl = getApiBaseUrl();
+  return apiUrl.startsWith('https://') ? 'https' : 'http';
+}
+
+const DEFAULT_REVERB_KEY = 'ysbbrwfe2zovsygafcnn';
+function getReverbKey(): string {
+  return process.env.EXPO_PUBLIC_REVERB_KEY || DEFAULT_REVERB_KEY;
+}
+
+export function getEcho(): Echo<'reverb'> {
+  if (echoInstance) {
+    return echoInstance;
+  }
+
+  const host = getReverbHost();
+  const port = getReverbPort();
+  const scheme = getReverbScheme();
+  const key = getReverbKey();
+
+  if (__DEV__) {
+    console.log(`[Echo] Initializing Reverb client => host: ${host}, port: ${port}, scheme: ${scheme}, key: ${key}`);
+  }
+
+  echoInstance = new Echo({
+    broadcaster: 'reverb',
+    key,
+    wsHost: host,
+    wsPort: port,
+    wssPort: port,
+    forceTLS: scheme === 'https',
+    enabledTransports: ['ws', 'wss'],
+    authorizer: (channel: any) => {
+      return {
+        authorize: (socketId: string, callback: (error: any, authData: any) => void) => {
+          const token = getAuthToken();
+          const authUrl = `${getApiBaseUrl()}/broadcasting/auth`;
+          if (__DEV__) {
+            console.log(`[Echo] Authorizing channel ${channel.name} at ${authUrl}`);
+          }
+          fetch(authUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({
+              socket_id: socketId,
+              channel_name: channel.name,
+            }),
+          })
+            .then(async (res) => {
+              if (!res.ok) {
+                const text = await res.text();
+                throw new Error(`Broadcast auth HTTP ${res.status}: ${text}`);
+              }
+              return res.json();
+            })
+            .then((data) => callback(null, data))
+            .catch((err) => {
+              if (__DEV__) {
+                console.warn(`[Echo] Channel authorization failed for ${channel.name}:`, err.message);
+              }
+              callback(err, null);
+            });
+        },
+      };
+    },
+  });
+
+  return echoInstance;
+}
+
+export function disconnectEcho(): void {
+  if (echoInstance) {
+    try {
+      echoInstance.disconnect();
+    } catch {
+      // ignore
+    }
+    echoInstance = null;
+  }
+}

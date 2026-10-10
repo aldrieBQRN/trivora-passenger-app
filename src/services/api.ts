@@ -65,6 +65,10 @@ export function setAuthToken(token: string | null) {
   authToken = token;
 }
 
+export function getAuthToken(): string | null {
+  return authToken;
+}
+
 async function request<T = any>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
   // FormData bodies (profile photo upload) must NOT get a manual Content-Type — fetch/RN needs
