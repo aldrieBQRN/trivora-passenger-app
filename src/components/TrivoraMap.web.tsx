@@ -58,7 +58,7 @@ export function todaIconHtml(): string {
   return `
     <div style="cursor: pointer; filter: drop-shadow(0 2px 5px rgba(0,0,0,0.3)); display: flex; flex-direction: column; align-items: center;">
       <div style="
-        background: #1D2542;
+        background: #182B62;
         width: 24px;
         height: 24px;
         border-radius: 50% 50% 50% 0;

@@ -4,11 +4,11 @@
  */
 
 export const COLORS = {
-  // Shared Trivora brand navy (#1D2542) — same in the Passenger and Driver apps
-  primary: '#1D2542',
+  // Shared Trivora brand navy (#182B62) — same in the Passenger and Driver apps
+  primary: '#182B62',
   primaryDark: '#141A31',
   primaryOnboarding: '#141A31',
-  primaryHover: '#283256',
+  primaryHover: '#25449B',
   primaryLight: '#4A5275',
   primaryTint: '#EDEEF3', // subtle cool-neutral active surface
 
@@ -22,7 +22,7 @@ export const COLORS = {
   // Hairline Borders
   border: '#E2E8F0',
   borderLight: '#F1F5F9',
-  borderFocus: '#1D2542',
+  borderFocus: '#182B62',
 
   // Typography
   textPrimary: '#0F172A',     // Slate 900
@@ -54,7 +54,7 @@ export const COLORS = {
 
   // Dark surfaces (Onboarding, in-call UI, profile banner, inverse states)
   darkBackground: '#141A31',
-  darkSurface: '#1D2542',
+  darkSurface: '#182B62',
   darkSurfaceRaised: '#2A3358',
   darkBorder: 'rgba(255, 255, 255, 0.16)',
   darkTextPrimary: '#FFFFFF',
@@ -155,7 +155,7 @@ export const TYPOGRAPHY = {
 
 /** Named accent colors for place/category iconography (destination picker, etc). */
 export const CATEGORY_COLORS = {
-  government: '#1D2542',
+  government: '#182B62',
   market: '#D97706',
   hospital: '#EF4444',
   harbor: '#0284C7',
