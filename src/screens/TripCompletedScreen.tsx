@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-nati
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '../constants/theme';
 import { useBooking } from '../context/BookingContext';
 import { Check, MapPin, Receipt, Home, Star, Clock } from 'lucide-react-native';
-import TripReceiptModal from '../components/TripReceiptModal';
+import TripReceiptScreen from './TripReceiptScreen';
 import Button from '../components/Button';
 
 /**
@@ -23,7 +23,7 @@ export default function TripCompletedScreen() {
     latestReceipt,
     paymentStatus,
   } = useBooking();
-  const [showReceiptModal, setShowReceiptModal] = useState(false);
+  const [showReceipt, setShowReceipt] = useState(false);
 
   const isPaid = paymentStatus === 'paid';
   // Server figures from the completed booking (receipt), falling back to the booked quote.
@@ -32,6 +32,11 @@ export default function TripCompletedScreen() {
   const farePerPassenger = latestReceipt?.farePerPassenger ?? fareEstimate.perPassengerFare;
   const passengerCount = latestReceipt?.passengerCount ?? fareEstimate.passengerCount;
   const methodLabel = paymentMethod === 'gcash' ? 'GCash' : 'Cash';
+
+  // The e-receipt is a full page, not a sheet — it replaces the completed-trip screen.
+  if (showReceipt && latestReceipt) {
+    return <TripReceiptScreen onBack={() => setShowReceipt(false)} receipt={latestReceipt} />;
+  }
 
   if (isPaid) {
     return (
@@ -49,7 +54,7 @@ export default function TripCompletedScreen() {
             <SummaryRow label="Payment Status" value="Paid" paid />
           </View>
 
-          <TouchableOpacity style={styles.receiptLink} onPress={() => setShowReceiptModal(true)} activeOpacity={0.7}>
+          <TouchableOpacity style={styles.receiptLink} onPress={() => setShowReceipt(true)} activeOpacity={0.7}>
             <Receipt size={16} color={COLORS.primary} />
             <Text style={styles.receiptLinkText}>View Official E-Receipt</Text>
           </TouchableOpacity>
@@ -69,12 +74,6 @@ export default function TripCompletedScreen() {
             <Button label="Rate Driver" icon={Star} onPress={() => setScreenState('rate_review')} />
           </View>
         </View>
-
-        <TripReceiptModal
-          visible={showReceiptModal}
-          onClose={() => setShowReceiptModal(false)}
-          receipt={latestReceipt}
-        />
       </View>
     );
   }

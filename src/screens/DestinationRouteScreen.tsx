@@ -1,11 +1,10 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, LayoutChangeEvent } from 'react-native';
-import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '../constants/theme';
+import { COLORS, RADIUS, SHADOWS, SPACING } from '../constants/theme';
 import { useBooking } from '../context/BookingContext';
-import { ArrowLeft, ArrowUpDown, ShieldCheck, MapPin } from 'lucide-react-native';
+import { ArrowLeft, ArrowUpDown } from 'lucide-react-native';
 import TrivoraMap from '../components/TrivoraMap';
-import DestinationPickerModal from '../components/DestinationPickerModal';
-import PinLocationModal from '../components/PinLocationModal';
+import DestinationSearchScreen from './DestinationSearchScreen';
 import FloatingIconButton from '../components/FloatingIconButton';
 import Button from '../components/Button';
 import RouteSummaryStrip from '../components/RouteSummaryStrip';
@@ -31,13 +30,34 @@ export default function DestinationRouteScreen({ topInset = 0 }: DestinationRout
   } = useBooking();
 
   const [pickerMode, setPickerMode] = useState<'pickup' | 'destination' | null>(null);
-  const [showPinModal, setShowPinModal] = useState(false);
 
   // Measured from actual layout rather than guessed — see ActiveRideScreen.
   const [topOverlayHeight, setTopOverlayHeight] = useState(0);
   const [sheetHeight, setSheetHeight] = useState(0);
   const handleTopLayout = (e: LayoutChangeEvent) => setTopOverlayHeight(e.nativeEvent.layout.height);
   const handleSheetLayout = (e: LayoutChangeEvent) => setSheetHeight(e.nativeEvent.layout.height);
+
+  // Destination/pick-up search is a full page, not a sheet — it replaces this screen while open.
+  if (pickerMode) {
+    const isPickupMode = pickerMode === 'pickup';
+    return (
+      <DestinationSearchScreen
+        onBack={() => setPickerMode(null)}
+        mode={pickerMode}
+        currentLocation={isPickupMode ? (hasDestination ? dropoff : undefined) : pickup}
+        initialLocation={isPickupMode ? pickup : (hasDestination ? dropoff : undefined)}
+        onUseCurrentLocation={isPickupMode ? useCurrentLocationForPickup : undefined}
+        onSelect={(loc) => {
+          setPickerMode(null);
+          if (isPickupMode) {
+            selectPickup(loc);
+          } else {
+            selectDestination(loc);
+          }
+        }}
+      />
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -74,7 +94,7 @@ export default function DestinationRouteScreen({ topInset = 0 }: DestinationRout
         </FloatingIconButton>
       </View>
 
-      {/* Primary composition: editable route + zone/distance context + CTA */}
+      {/* Primary composition: editable route + CTA */}
       <View style={styles.sheet} onLayout={handleSheetLayout}>
         <RouteSummaryStrip
           variant="editable"
@@ -84,61 +104,12 @@ export default function DestinationRouteScreen({ topInset = 0 }: DestinationRout
           onPressDropoff={() => setPickerMode('destination')}
         />
 
-        <View style={styles.metaRow}>
-          <View style={styles.metaLeftGroup}>
-            <View style={styles.zoneTag}>
-              <ShieldCheck size={12} color={COLORS.primary} />
-              <Text style={styles.zoneTagText} numberOfLines={1}>{matchedToda?.name || 'TODA Bucana Zone'}</Text>
-            </View>
-            {/* Distance/time is on the map's route badge — not repeated here. */}
-          </View>
-
-          <TouchableOpacity
-            style={styles.pinChip}
-            onPress={() => setShowPinModal(true)}
-            activeOpacity={0.7}
-            accessibilityRole="button"
-            accessibilityLabel="Pin destination on map"
-          >
-            <MapPin size={13} color={COLORS.primary} strokeWidth={2.4} />
-            <Text style={styles.pinLink}>Pin on map</Text>
-          </TouchableOpacity>
-        </View>
-
         <Button
           label="Continue"
           onPress={() => setScreenState('confirm_fare')}
           disabled={!hasDestination}
         />
       </View>
-
-      {/* Destination Picker Modal — also reused for Change Pick-up, in 'pickup' mode */}
-      <DestinationPickerModal
-        visible={pickerMode !== null}
-        onClose={() => setPickerMode(null)}
-        mode={pickerMode === 'pickup' ? 'pickup' : 'destination'}
-        currentLocation={pickerMode === 'pickup' ? (hasDestination ? dropoff : undefined) : pickup}
-        initialLocation={pickerMode === 'pickup' ? pickup : (hasDestination ? dropoff : undefined)}
-        onUseCurrentLocation={pickerMode === 'pickup' ? useCurrentLocationForPickup : undefined}
-        onSelect={(loc) => {
-          if (pickerMode === 'pickup') {
-            selectPickup(loc);
-          } else {
-            selectDestination(loc);
-          }
-        }}
-      />
-
-      {/* Pin Location on Map Modal */}
-      <PinLocationModal
-        visible={showPinModal}
-        onClose={() => setShowPinModal(false)}
-        currentPickup={pickup}
-        initialLocation={hasDestination ? dropoff : undefined}
-        onConfirmPin={(loc) => {
-          selectDestination(loc);
-        }}
-      />
     </View>
   );
 }
@@ -169,50 +140,4 @@ const styles = StyleSheet.create({
     gap: SPACING.sm + 2,
     ...SHADOWS.sheet,
   },
-  metaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-    paddingTop: 2,
-    paddingBottom: 2,
-  },
-  metaLeftGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    flexShrink: 1,
-  },
-  zoneTag: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: COLORS.primaryTint,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: RADIUS.sm,
-    flexShrink: 1,
-  },
-  // The zone name gives way (ellipsis) before the distance/time does.
-  zoneTagText: {
-    ...TYPOGRAPHY.micro,
-    color: COLORS.primary,
-    flexShrink: 1,
-  },
-  // Reads as a small tappable chip, not stray bold text.
-  pinChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: RADIUS.full,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  pinLink: {
-    ...TYPOGRAPHY.caption,
-    color: COLORS.primary,
-    fontWeight: '700',
-  },
-});
+  });

@@ -31,8 +31,10 @@ export interface QrError {
   message: string;
 }
 
-/** Same cadence as the normal ride's active-booking poll (BookingContext ACTIVE_BOOKING_POLL_MS). */
-const QR_RIDE_POLL_MS = 5000;
+/** Same cadence as the normal ride's active-booking poll (BookingContext ACTIVE_BOOKING_POLL_MS).
+ * Also the cadence for re-checking a scanned tricycle's availability while the setup screen is
+ * open, so filling seats are reflected live before a passenger joins. */
+export const QR_RIDE_POLL_MS = 5000;
 
 /** Still part of the passenger's flow: seated, or dropped off with the driver yet to confirm payment. */
 export function isQrRideUnfinished(ride: QrActiveRide | null): boolean {
@@ -50,6 +52,10 @@ interface QrRideContextType {
   quote: QrQuote | null;
   quoteError: QrError | null;
   isQuoting: boolean;
+  /** Signature (destination + party size) of the exact request that produced the current `quote`;
+   *  null when there is no quote. The quote is only a confirmed fare for a selection whose
+   *  signature equals this — an older response can never validate a newer selection. */
+  quoteSignature: string | null;
   joinError: QrError | null;
   isJoining: boolean;
   ride: QrActiveRide | null;
@@ -59,10 +65,15 @@ interface QrRideContextType {
   /** Handles a raw scanned QR value. Returns false (and stays on the scanner) when it isn't a
    * Trivora ride QR, so the camera can keep looking. */
   submitScannedData: (data: string) => boolean;
-  refreshScan: () => Promise<void>;
-  requestQuote: (destination: LocationPoint, partySize: number, passengerLocation: { lat: number; lng: number }) => Promise<void>;
+  /** Re-resolves the scanned tricycle. Pass `{ silent: true }` for background re-checks (live
+   * availability polling) that keep the current scan + quote on screen and swallow failures —
+   * the visible "Check Again" / Join paths surface problems themselves. */
+  refreshScan: (opts?: { silent?: boolean }) => Promise<void>;
+  requestQuote: (destination: LocationPoint, partySize: number, passengerLocation: { lat: number; lng: number }, signature: string) => Promise<void>;
   clearQuote: () => void;
-  joinRide: (paymentMethod?: PaymentMethod | string) => Promise<void>;
+  /** Joins only when the held quote belongs to `expectedSignature` (the selection now on screen)
+   *  and no refresh is in progress; otherwise it is a no-op. */
+  joinRide: (expectedSignature: string | null, paymentMethod?: PaymentMethod | string) => Promise<void>;
   leaveRide: () => Promise<boolean>;
   finishRide: () => void;
   /** Go to Home without abandoning the ride; it stays polled and resumable from Home. */
@@ -74,6 +85,11 @@ interface QrRideContextType {
 const QrRideContext = createContext<QrRideContextType | null>(null);
 
 function toQrError(err: any, fallback: string): QrError {
+  // A server-side timeout is its own outcome — never conflated with a user-triggered cancel
+  // (which the callers swallow) or a generic connection failure.
+  if (err?.name === 'TimeoutError' || err?.code === 'timeout') {
+    return { code: 'timeout', message: fallback };
+  }
   if (err && err.status === undefined) {
     return { code: 'network', message: 'Could not reach Trivora. Check your connection and try again.' };
   }
@@ -98,6 +114,7 @@ export function QrRideProvider({ children }: { children: React.ReactNode }) {
   const [quote, setQuote] = useState<QrQuote | null>(null);
   const [quoteError, setQuoteError] = useState<QrError | null>(null);
   const [isQuoting, setIsQuoting] = useState(false);
+  const [quoteSignature, setQuoteSignature] = useState<string | null>(null);
   const [joinError, setJoinError] = useState<QrError | null>(null);
   const [isJoining, setIsJoining] = useState(false);
   const [ride, setRide] = useState<QrActiveRide | null>(null);
@@ -113,6 +130,7 @@ export function QrRideProvider({ children }: { children: React.ReactNode }) {
     setScanError(null);
     setQuote(null);
     setQuoteError(null);
+    setQuoteSignature(null);
     setJoinError(null);
   }, []);
 
@@ -142,12 +160,17 @@ export function QrRideProvider({ children }: { children: React.ReactNode }) {
     };
   }, [isAuthenticated, enterRide, resetSetup]);
 
-  const resolveToken = useCallback(async (token: string) => {
+  const resolveToken = useCallback(async (token: string, opts?: { silent?: boolean }) => {
     setIsResolving(true);
-    setScan(null);
-    setScanError(null);
-    setQuote(null);
-    setQuoteError(null);
+    if (!opts?.silent) {
+      // Only a user-visible re-check (first scan or "Check Again") blanks the current screen —
+      // a background availability poll must keep showing the resolved tricycle while it works.
+      setScan(null);
+      setScanError(null);
+      setQuote(null);
+      setQuoteError(null);
+      setQuoteSignature(null);
+    }
     setJoinError(null);
     try {
       const result = await passengerApi.qrScanTricycle(token);
@@ -161,7 +184,9 @@ export function QrRideProvider({ children }: { children: React.ReactNode }) {
       }
       setScan(result);
     } catch (err: any) {
-      setScanError(toQrError(err, "This QR code couldn't be checked."));
+      // A background poll failing (e.g. a blip) shouldn't rip an otherwise-fine tricycle view
+      // away from the passenger; the Join attempt re-checks server-side anyway.
+      if (!opts?.silent) setScanError(toQrError(err, "This QR code couldn't be checked."));
     } finally {
       setIsResolving(false);
     }
@@ -186,14 +211,15 @@ export function QrRideProvider({ children }: { children: React.ReactNode }) {
     return true;
   }, [resolveToken]);
 
-  const refreshScan = useCallback(async () => {
-    if (tokenRef.current) await resolveToken(tokenRef.current);
+  const refreshScan = useCallback(async (opts?: { silent?: boolean }) => {
+    if (tokenRef.current) await resolveToken(tokenRef.current, opts);
   }, [resolveToken]);
 
   const requestQuote = useCallback(async (
     destination: LocationPoint,
     partySize: number,
     passengerLocation: { lat: number; lng: number },
+    signature: string,
   ) => {
     if (!tokenRef.current) return;
     const requestId = ++quoteRequestRef.current;
@@ -216,11 +242,17 @@ export function QrRideProvider({ children }: { children: React.ReactNode }) {
         dropoff_lat: destination.lat,
         dropoff_lng: destination.lng,
       }, { signal: controller.signal });
-      if (requestId === quoteRequestRef.current) setQuote(result);
+      if (requestId === quoteRequestRef.current) {
+        setQuote(result);
+        // Bind the quote to the exact request that produced it, so a later selection change (or a
+        // superseded request) can never treat this response as fresh for a different selection.
+        setQuoteSignature(signature);
+      }
     } catch (err: any) {
       if (err?.name === 'AbortError' || controller.signal.aborted) return;
       if (requestId !== quoteRequestRef.current) return;
       setQuote(null);
+      setQuoteSignature(null);
       setQuoteError(toQrError(err, "Couldn't get a fare for this trip."));
     } finally {
       if (requestId === quoteRequestRef.current) setIsQuoting(false);
@@ -235,11 +267,16 @@ export function QrRideProvider({ children }: { children: React.ReactNode }) {
     }
     setQuote(null);
     setQuoteError(null);
+    setQuoteSignature(null);
     setIsQuoting(false);
   }, []);
 
-  const joinRide = useCallback(async (paymentMethod: PaymentMethod | string = 'cash') => {
-    if (!quote || isJoining) return;
+  const joinRide = useCallback(async (expectedSignature: string | null, paymentMethod: PaymentMethod | string = 'cash') => {
+    // Refuse to submit anything but the quote produced for the selection now on screen, and never
+    // while a refresh is in flight. The disabled button mirrors this, but the guard lives here too
+    // so a stale quote can't be joined even if the UI is out of sync.
+    if (!quote || isJoining || isQuoting) return;
+    if (!expectedSignature || expectedSignature !== quoteSignature) return;
     setIsJoining(true);
     setJoinError(null);
     try {
@@ -260,11 +297,13 @@ export function QrRideProvider({ children }: { children: React.ReactNode }) {
       }
       if (error.code === 'quote_expired' || error.code === 'invalid_quote') {
         setQuote(null);
+        setQuoteSignature(null);
       }
       setJoinError(error);
       // Seats, ride state or the driver may have changed — refresh what the tricycle shows.
       if (error.code && error.code !== 'network' && error.code !== 'quote_expired' && error.code !== 'invalid_quote') {
         setQuote(null);
+        setQuoteSignature(null);
         if (tokenRef.current) {
           passengerApi.qrScanTricycle(tokenRef.current).then(setScan).catch((e) => setScanError(toQrError(e, error.message)));
         }
@@ -272,7 +311,7 @@ export function QrRideProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setIsJoining(false);
     }
-  }, [quote, isJoining, enterRide, showToast]);
+  }, [quote, isJoining, isQuoting, quoteSignature, enterRide, showToast]);
 
   const leaveRide = useCallback(async () => {
     if (!ride || isLeaving) return false;
@@ -360,7 +399,7 @@ export function QrRideProvider({ children }: { children: React.ReactNode }) {
   return (
     <QrRideContext.Provider
       value={{
-        stage, scan, scanError, isResolving, quote, quoteError, isQuoting, joinError, isJoining, ride, isLeaving,
+        stage, scan, scanError, isResolving, quote, quoteError, isQuoting, quoteSignature, joinError, isJoining, ride, isLeaving,
         openScanner, closeQr, submitScannedData, refreshScan, requestQuote, clearQuote, joinRide, leaveRide, finishRide,
         minimizeRide, resumeRide,
       }}

@@ -6,7 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { Bell, Search, Home as HomeIcon, Briefcase, School, Bookmark, Plus, ChevronRight, ScanLine, MoreHorizontal, MapPin } from 'lucide-react-native';
 import Avatar from '../components/Avatar';
 import TrivoraMap from '../components/TrivoraMap';
-import DestinationPickerModal from '../components/DestinationPickerModal';
+import DestinationSearchScreen from './DestinationSearchScreen';
 import NotificationsModal from '../components/NotificationsModal';
 import FloatingIconButton from '../components/FloatingIconButton';
 import MapLocationNotice from '../components/MapLocationNotice';
@@ -113,6 +113,18 @@ export default function HomeScreen({
   // real GPS fix. Booking actions stay disabled until then, because until then `pickup` is still
   // the context's placeholder, not the passenger's real position.
   const locationKnown = currentLat != null && currentLng != null;
+
+  // Destination search is a full page, not a sheet — it replaces Home while open.
+  if (showDestinationPicker) {
+    return (
+      <DestinationSearchScreen
+        onBack={() => setShowDestinationPicker(false)}
+        onSelect={(dest) => { selectDestination(dest); setShowDestinationPicker(false); }}
+        currentLocation={pickup}
+        initialPlacesTab={pickerTab}
+      />
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -320,14 +332,6 @@ export default function HomeScreen({
         visible={showAddPlace}
         onClose={() => setShowAddPlace(false)}
         onSave={handleAddPlace}
-      />
-
-      <DestinationPickerModal
-        visible={showDestinationPicker}
-        onClose={() => setShowDestinationPicker(false)}
-        onSelect={(dest) => selectDestination(dest)}
-        currentLocation={pickup}
-        initialPlacesTab={pickerTab}
       />
 
       <NotificationsModal

@@ -6,23 +6,17 @@ import {
   Modal,
   TextInput,
   TouchableOpacity,
-  FlatList,
   ScrollView,
   Platform,
-  ActivityIndicator,
   KeyboardAvoidingView,
 } from 'react-native';
 import { COLORS, RADIUS, SHADOWS, SPACING, BUTTONS, TYPOGRAPHY } from '../constants/theme';
 import { SavedPlace } from '../types';
-import { POPULAR_DESTINATIONS } from '../constants/todaRoutes';
-import { searchPlaces, PlaceSearchResult } from '../services/routingService';
 import { useCurrentLocation } from '../hooks/useCurrentLocation';
-import { useToast } from './Toast';
 import {
   X,
-  Search,
-  MapPin,
   ChevronLeft,
+  MapPin,
   Home,
   Briefcase,
   School,
@@ -34,7 +28,7 @@ import {
   Tag,
   Trash2,
 } from 'lucide-react-native';
-import PinLocationModal from './PinLocationModal';
+import DestinationSearchScreen from '../screens/DestinationSearchScreen';
 import Button from './Button';
 
 interface AddEditSavedPlaceModalProps {
@@ -59,8 +53,6 @@ const LABEL_PRESETS = [
   { label: 'Other', icon: MoreHorizontal },
 ];
 
-const SEARCH_DEBOUNCE_MS = 400;
-
 interface PickedLocation {
   name: string;
   address: string;
@@ -79,25 +71,20 @@ export default function AddEditSavedPlaceModal({
   const [picked, setPicked] = useState<PickedLocation | null>(null);
   const [label, setLabel] = useState('');
   const [saving, setSaving] = useState(false);
-  const [showPinModal, setShowPinModal] = useState(false);
-  // Freshly re-fetched each time "Pin on Map" is opened — never carries over the last picked
-  // point or a hardcoded fallback, so the map always starts centered on the passenger's real
-  // current position (see handleOpenPinModal below).
-  const [pinStartLocation, setPinStartLocation] = useState<PickedLocation | undefined>(undefined);
-  const { requestCurrentLocation, isLocating: isLocatingPin } = useCurrentLocation();
-  const { showToast } = useToast();
-
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<PlaceSearchResult[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const searchRequestIdRef = useRef(0);
+  // Destination for DestinationSearchScreen: freshly resolved device GPS whenever the pick step
+  // opens, so its nearby/suggested places and pin-map center on the passenger. Falls back to
+  // undefined (Nasugbu town center) when GPS is unavailable — never a fabricated position.
+  const [pickStartLocation, setPickStartLocation] = useState<PickedLocation | undefined>(undefined);
+  const { requestCurrentLocation } = useCurrentLocation();
+  // Set when a destination is picked so the picker's own post-selection onBack() (which always
+  // follows onSelect) is recognized as its internal auto-dismiss — not a user cancel.
+  const justSelectedRef = useRef(false);
 
   // Re-seed each time the modal opens — either into edit mode with the existing place, or a
   // clean add flow.
   useEffect(() => {
     if (!visible) return;
-    setSearchQuery('');
-    setSearchResults([]);
+    justSelectedRef.current = false;
     setSaving(false);
     if (editingPlace) {
       setPicked({
@@ -115,58 +102,22 @@ export default function AddEditSavedPlaceModal({
     }
   }, [visible, editingPlace]);
 
+  // Fresh device GPS whenever the pick step is on screen (add flow, or an edit's "Change
+  // Location") so suggestions/pin-map start where the passenger actually is.
   useEffect(() => {
-    if (searchQuery.trim().length < 2) {
-      setSearchResults([]);
-      return;
-    }
-    const requestId = ++searchRequestIdRef.current;
-    setIsSearching(true);
-    const timer = setTimeout(() => {
-      searchPlaces(searchQuery).then((results) => {
-        if (requestId !== searchRequestIdRef.current) return;
-        setSearchResults(results);
-        setIsSearching(false);
-      });
-    }, SEARCH_DEBOUNCE_MS);
-    return () => clearTimeout(timer);
-  }, [searchQuery]);
+    if (!visible || step !== 'pick') return;
+    requestCurrentLocation().then((coords) => {
+      setPickStartLocation(
+        coords ? { name: 'Current Location', address: 'Current Location', lat: coords.lat, lng: coords.lng } : undefined
+      );
+    });
+  }, [visible, step, requestCurrentLocation]);
 
-  const isSearchMode = searchQuery.trim().length >= 2;
-
-  const handlePickResult = (result: PlaceSearchResult) => {
+  const handlePickResult = (result: { name: string; address: string; lat: number; lng: number }) => {
+    justSelectedRef.current = true;
     setPicked({ name: result.name, address: result.address, lat: result.lat, lng: result.lng });
     setLabel((prev) => prev || result.name);
     setStep('confirm');
-  };
-
-  const handlePickSuggested = (place: { name: string; address?: string; lat: number; lng: number }) => {
-    setPicked({ name: place.name, address: place.address || place.name, lat: place.lat, lng: place.lng });
-    setLabel((prev) => prev || place.name);
-    setStep('confirm');
-  };
-
-  const handleConfirmPin = (loc: { name: string; address?: string; lat: number; lng: number }) => {
-    setShowPinModal(false);
-    setPicked({ name: loc.name, address: loc.address || loc.name, lat: loc.lat, lng: loc.lng });
-    setLabel((prev) => prev || loc.name);
-    setStep('confirm');
-  };
-
-  // Re-fetches real device GPS every time "Pin on Map" is opened, so the map always starts on
-  // the passenger's current position — never the last picked pin, the place being edited, or a
-  // hardcoded town coordinate. If GPS is unavailable, the map still opens (so the passenger can
-  // still drop a pin manually) but starts from a generic viewport, and a toast explains why —
-  // never a fabricated "current location".
-  const handleOpenPinModal = async () => {
-    const coords = await requestCurrentLocation();
-    if (coords) {
-      setPinStartLocation({ name: 'Current Location', address: 'Current Location', lat: coords.lat, lng: coords.lng });
-    } else {
-      setPinStartLocation(undefined);
-      showToast('Could not get your current location. You can still drop a pin manually.', 'info');
-    }
-    setShowPinModal(true);
   };
 
   const handleSave = async () => {
@@ -184,113 +135,27 @@ export default function AddEditSavedPlaceModal({
 
   return (
     <>
-      {/* Full-screen picker — search, suggested places, pin on map. Only shown while adding a
-          new place; editing an existing one jumps straight to the confirm bottom sheet below. */}
+      {/* Full-screen destination picker — the same destination-selection page Home shows, embedded
+          in a modal so it layers above whichever screen opened this add flow. Picking a search
+          result, a suggested/nearby place, a saved place, or a pinned map location drops the
+          passenger into the confirm bottom sheet below. */}
       <Modal visible={visible && step === 'pick'} animationType="slide" onRequestClose={onClose}>
-        <KeyboardAvoidingView style={styles.sheet} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-          <View style={styles.header}>
-            <View style={styles.headerIconBtn} />
-            <Text style={styles.title}>Add a Place</Text>
-            <TouchableOpacity style={styles.headerIconBtn} onPress={onClose} activeOpacity={0.7}>
-              <X size={20} color={COLORS.textPrimary} />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.pickStep}>
-            <View style={styles.searchBar}>
-                <Search size={18} color={COLORS.textSecondary} />
-                <TextInput
-                  style={styles.searchInput}
-                  placeholder="Search a real location..."
-                  placeholderTextColor={COLORS.textSecondary}
-                  value={searchQuery}
-                  onChangeText={setSearchQuery}
-                  autoFocus
-                  returnKeyType="search"
-                />
-                {searchQuery.length > 0 && (
-                  <TouchableOpacity onPress={() => setSearchQuery('')} activeOpacity={0.7}>
-                    <X size={16} color={COLORS.textSecondary} />
-                  </TouchableOpacity>
-                )}
-              </View>
-
-              <TouchableOpacity
-                style={styles.pinRow}
-                onPress={handleOpenPinModal}
-                activeOpacity={0.8}
-                disabled={isLocatingPin}
-              >
-                <View style={styles.pinIconCircle}>
-                  {isLocatingPin ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
-                  ) : (
-                    <MapPin size={16} color="#FFFFFF" />
-                  )}
-                </View>
-                <Text style={styles.pinRowText}>
-                  {isLocatingPin ? 'Getting your location...' : 'Pin exact location on map'}
-                </Text>
-              </TouchableOpacity>
-
-              {isSearchMode ? (
-                <>
-                  <Text style={styles.listSectionLabel}>Search Results</Text>
-                  {isSearching ? (
-                    <View style={styles.statusBox}>
-                      <ActivityIndicator color={COLORS.primary} />
-                    </View>
-                  ) : (
-                    <FlatList
-                      style={styles.resultsList}
-                      data={searchResults}
-                      keyExtractor={(item, idx) => `${item.lat},${item.lng},${idx}`}
-                      contentContainerStyle={styles.listContent}
-                      keyboardShouldPersistTaps="handled"
-                      ListEmptyComponent={
-                        <View style={styles.statusBox}>
-                          <Text style={styles.emptyText}>No matching places found.</Text>
-                        </View>
-                      }
-                      renderItem={({ item }) => (
-                        <TouchableOpacity style={styles.resultItem} onPress={() => handlePickResult(item)} activeOpacity={0.7}>
-                          <View style={styles.resultIconBox}>
-                            <MapPin size={16} color={COLORS.primary} />
-                          </View>
-                          <View style={styles.resultTextCol}>
-                            <Text style={styles.resultName} numberOfLines={1}>{item.name}</Text>
-                            <Text style={styles.resultAddress} numberOfLines={1}>{item.address}</Text>
-                          </View>
-                        </TouchableOpacity>
-                      )}
-                    />
-                  )}
-                </>
-              ) : (
-                <>
-                  <Text style={styles.listSectionLabel}>Suggested Places</Text>
-                  <FlatList
-                    style={styles.resultsList}
-                    data={POPULAR_DESTINATIONS}
-                    keyExtractor={(item) => item.name}
-                    contentContainerStyle={styles.listContent}
-                    keyboardShouldPersistTaps="handled"
-                    renderItem={({ item }) => (
-                      <TouchableOpacity style={styles.resultItem} onPress={() => handlePickSuggested(item)} activeOpacity={0.7}>
-                        <View style={styles.resultIconBox}>
-                          <MapPin size={16} color={COLORS.primary} />
-                        </View>
-                        <View style={styles.resultTextCol}>
-                          <Text style={styles.resultName} numberOfLines={1}>{item.name}</Text>
-                          <Text style={styles.resultAddress} numberOfLines={1}>{item.address}</Text>
-                        </View>
-                      </TouchableOpacity>
-                    )}
-                  />
-                </>
-              )}
-            </View>
-        </KeyboardAvoidingView>
+        <DestinationSearchScreen
+          title="Add a Place"
+          onBack={() => {
+            if (justSelectedRef.current) {
+              // The picker auto-dismisses itself after a selection (it fires onSelect, then this
+              // onBack) — the confirm step already owns the flow, so this trailing call must not
+              // close the whole modal. Consume the flag so a later header-back works normally.
+              justSelectedRef.current = false;
+              return;
+            }
+            onClose();
+          }}
+          mode="destination"
+          currentLocation={pickStartLocation}
+          onSelect={(loc) => handlePickResult({ name: loc.name, address: loc.address || loc.name, lat: loc.lat, lng: loc.lng })}
+        />
       </Modal>
 
       {/* Confirm Place — a bottom sheet, not full-screen, since it's a short final step (label +
@@ -378,24 +243,11 @@ export default function AddEditSavedPlaceModal({
           </View>
         </KeyboardAvoidingView>
       </Modal>
-
-      <PinLocationModal
-        visible={showPinModal}
-        onClose={() => setShowPinModal(false)}
-        initialLocation={pinStartLocation}
-        onConfirmPin={handleConfirmPin}
-        confirmLabel="Use This Location"
-      />
     </>
   );
 }
 
 const styles = StyleSheet.create({
-  sheet: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
-  },
   confirmOverlay: {
     flex: 1,
     backgroundColor: 'rgba(15, 23, 42, 0.6)',
@@ -414,17 +266,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: SPACING.md,
-    paddingTop: Platform.OS === 'ios' ? 48 : 16,
+    paddingTop: SPACING.md,
     paddingBottom: SPACING.sm,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.borderLight,
-    ...SHADOWS.sm,
   },
-  // Overrides `header`'s status-bar clearance for the confirm bottom sheet, which — unlike the
-  // full-screen picker — doesn't start at the very top of the screen, so it only needs the
-  // sheet's own modest top padding, not a status-bar-height gap or the picker's shadow.
   confirmHeader: {
-    paddingTop: SPACING.md,
     shadowOpacity: 0,
     elevation: 0,
   },
@@ -439,103 +286,6 @@ const styles = StyleSheet.create({
   title: {
     ...TYPOGRAPHY.h3,
     color: COLORS.textPrimary,
-  },
-  pickStep: {
-    flex: 1,
-  },
-  resultsList: {
-    flex: 1,
-  },
-  searchBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: COLORS.surfaceInput,
-    borderRadius: RADIUS.lg,
-    marginHorizontal: SPACING.lg,
-    marginTop: SPACING.md,
-    paddingHorizontal: SPACING.md,
-    height: 48,
-    gap: 10,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 14,
-    color: COLORS.textPrimary,
-    fontWeight: '600',
-  },
-  pinRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginHorizontal: SPACING.lg,
-    marginTop: SPACING.sm,
-    marginBottom: 4,
-    paddingVertical: 10,
-  },
-  pinIconCircle: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: COLORS.danger,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pinRowText: {
-    ...TYPOGRAPHY.body,
-    fontWeight: '700',
-    color: COLORS.primary,
-  },
-  listSectionLabel: {
-    ...TYPOGRAPHY.label,
-    color: COLORS.textSecondary,
-    paddingHorizontal: SPACING.lg,
-    paddingTop: SPACING.md,
-    paddingBottom: SPACING.xs,
-  },
-  statusBox: {
-    paddingVertical: SPACING.lg,
-    paddingHorizontal: SPACING.lg,
-    alignItems: 'center',
-  },
-  emptyText: {
-    ...TYPOGRAPHY.bodySmall,
-    color: COLORS.textSecondary,
-    textAlign: 'center',
-  },
-  listContent: {
-    paddingHorizontal: SPACING.lg,
-    paddingBottom: SPACING.lg,
-  },
-  resultItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.borderLight,
-  },
-  resultIconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: RADIUS.md,
-    backgroundColor: COLORS.backgroundSubtle,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  resultTextCol: {
-    flex: 1,
-  },
-  resultName: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: COLORS.textPrimary,
-  },
-  resultAddress: {
-    fontSize: 11,
-    color: COLORS.textSecondary,
-    marginTop: 2,
   },
   confirmForm: {
     padding: SPACING.lg,

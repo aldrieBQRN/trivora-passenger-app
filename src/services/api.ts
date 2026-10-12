@@ -69,6 +69,10 @@ export function getAuthToken(): string | null {
   return authToken;
 }
 
+/** Upper bound on any single API request. Long enough for a slow routing-backed quote, short
+ * enough that a stalled connection surfaces as a retryable timeout instead of a hang. */
+const REQUEST_TIMEOUT_MS = 15000;
+
 async function request<T = any>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
   // FormData bodies (profile photo upload) must NOT get a manual Content-Type — fetch/RN needs
@@ -82,10 +86,48 @@ async function request<T = any>(endpoint: string, options: RequestInit = {}): Pr
     ...(options.headers as Record<string, string>),
   };
 
-  const response = await fetch(url, {
-    ...options,
-    headers,
-  });
+  // Compose a caller signal (e.g. AbortController on a superseded quote) with our own timeout so
+  // a user-triggered cancellation and a timeout stay distinguishable to the caller.
+  const callerSignal = options.signal ?? undefined;
+  const controller = new AbortController();
+  let callerAborted = callerSignal?.aborted ?? false;
+  let timedOut = false;
+
+  const onCallerAbort = () => {
+    callerAborted = true;
+    controller.abort();
+  };
+  if (callerSignal && !callerSignal.aborted) {
+    callerSignal.addEventListener('abort', onCallerAbort);
+  } else if (callerSignal?.aborted) {
+    controller.abort();
+  }
+
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, REQUEST_TIMEOUT_MS);
+
+  let response: Response;
+  try {
+    response = await fetch(url, { ...options, headers, signal: controller.signal });
+  } catch (err) {
+    if (timedOut) {
+      const timeoutError = new Error('Trivora took too long to respond.') as any;
+      timeoutError.name = 'TimeoutError';
+      timeoutError.code = 'timeout';
+      throw timeoutError;
+    }
+    if (callerAborted) {
+      const abortError = new Error('Request aborted.') as any;
+      abortError.name = 'AbortError';
+      throw abortError;
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+    callerSignal?.removeEventListener('abort', onCallerAbort);
+  }
 
   const data = await response.json().catch(() => null);
 

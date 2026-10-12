@@ -169,7 +169,9 @@ export default function TrivoraMapWeb({
   const syncRouteLayer = useCallback(
     (map: maplibregl.Map, coords: { lat: number; lng: number }[], fallback: boolean) => {
       if (!map.isStyleLoaded()) return;
-      const lineCoords = coords.map((c) => [c.lng, c.lat]);
+      const lineCoords = coords
+        .filter((c) => Number.isFinite(c.lat) && Number.isFinite(c.lng))
+        .map((c) => [c.lng, c.lat]);
       const data: GeoJSON.Feature<GeoJSON.LineString> = {
         type: 'Feature',
         properties: {},
@@ -387,6 +389,7 @@ export default function TrivoraMapWeb({
         if (routeCoordinates && routeCoordinates.length > 0) {
           const step = Math.max(1, Math.ceil(routeCoordinates.length / MAX_FIT_ROUTE_POINTS));
           routeCoordinates.forEach((c, i) => {
+            if (!Number.isFinite(c.lat) || !Number.isFinite(c.lng)) return;
             if (i % step === 0 || i === routeCoordinates.length - 1) points.push({ lat: c.lat, lng: c.lng });
           });
         }

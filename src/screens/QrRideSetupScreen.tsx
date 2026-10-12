@@ -1,13 +1,13 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
 import { MapPin, ChevronRight, Minus, Plus, AlertCircle, RefreshCw, ScanLine, Banknote, Smartphone } from 'lucide-react-native';
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '../constants/theme';
-import { useQrRide } from '../context/QrRideContext';
+import { useQrRide, QR_RIDE_POLL_MS } from '../context/QrRideContext';
 import { useBooking } from '../context/BookingContext';
 import { useCurrentLocation } from '../hooks/useCurrentLocation';
 import ScreenHeader from '../components/ScreenHeader';
 import Button from '../components/Button';
-import DestinationPickerModal from '../components/DestinationPickerModal';
+import DestinationSearchScreen from './DestinationSearchScreen';
 import { describeTricycle, formatPeso } from '../utils/qrRide';
 import TricycleIcon from '../components/icons/TricycleIcon';
 import { LocationPoint, PaymentMethod } from '../types';
@@ -27,6 +27,7 @@ const REASON_TITLES: Record<string, string> = {
   ride_full: 'This tricycle is full',
   ride_in_progress: 'Ride is currently in progress',
   network: 'Connection problem',
+  timeout: 'Trivora is taking too long',
 };
 
 /**
@@ -36,7 +37,7 @@ const REASON_TITLES: Record<string, string> = {
  */
 export default function QrRideSetupScreen() {
   const {
-    scan, scanError, isResolving, quote, quoteError, isQuoting, joinError, isJoining,
+    scan, scanError, isResolving, quote, quoteError, isQuoting, quoteSignature, joinError, isJoining,
     closeQr, openScanner, refreshScan, requestQuote, clearQuote, joinRide,
   } = useQrRide();
   const { currentLat, currentLng } = useBooking();
@@ -58,6 +59,38 @@ export default function QrRideSetupScreen() {
     if (partySize > maxParty) setPartySize(maxParty);
   }, [maxParty]);
 
+  // Live availability while this screen is open: silently re-check the tricycle every poll tick so
+  // filling seats are reflected in real time — and if it fills up (ride_full), `can_join` flips to
+  // false and the screen drops the Join controls for the "This tricycle is full" state instead of
+  // letting someone Join a ride that's gone. Overbooking is also stopped server-side on Join; this
+  // is the live UI mirror. Never overlaps an in-flight check/quote/join.
+  const scanRef = useRef(scan);
+  scanRef.current = scan;
+  const isResolvingRef = useRef(isResolving);
+  isResolvingRef.current = isResolving;
+  const isQuotingRef = useRef(isQuoting);
+  isQuotingRef.current = isQuoting;
+  const isJoiningRef = useRef(isJoining);
+  isJoiningRef.current = isJoining;
+
+  // A quote is only "fresh" — a confirmed fare — when it was produced by the exact request for the
+  // destination and party size currently on screen (the context binds the held quote to that
+  // request's signature). Otherwise any value we still hold is shown as a labelled estimate and
+  // cannot be joined; the server re-validates on Join regardless.
+  const currentSignature = destination
+    ? `${destination.lat}|${destination.lng}|${destination.name}|${partySize}`
+    : null;
+  const quoteFresh = !!quote && quoteSignature != null && quoteSignature === currentSignature;
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!scanRef.current) return;
+      if (isResolvingRef.current || isQuotingRef.current || isJoiningRef.current) return;
+      refreshScan({ silent: true }).catch(() => {});
+    }, QR_RIDE_POLL_MS);
+    return () => clearInterval(interval);
+  }, [refreshScan]);
+
   // Server quote whenever the destination or party size changes, debounced by ~300ms. The passenger's own position is
   // sent only as the server's fallback pick-up when the tricycle's GPS isn't fresh.
   useEffect(() => {
@@ -67,6 +100,7 @@ export default function QrRideSetupScreen() {
     }
     let cancelled = false;
     const timer = setTimeout(async () => {
+      if (!currentSignature) return;
       let here = currentLat != null && currentLng != null ? { lat: currentLat, lng: currentLng } : null;
       if (!here) here = await requestCurrentLocation();
       if (cancelled) return;
@@ -75,7 +109,7 @@ export default function QrRideSetupScreen() {
         return;
       }
       setLocationError(null);
-      requestQuote(destination, partySize, here);
+      requestQuote(destination, partySize, here, currentSignature);
     }, 300);
 
     return () => {
@@ -126,6 +160,17 @@ export default function QrRideSetupScreen() {
 
   const t = scan.tricycle;
   const ride = scan.ride;
+
+  // Destination search is a full page, not a sheet — it replaces this screen while open.
+  if (showPicker) {
+    return (
+      <DestinationSearchScreen
+        onBack={() => setShowPicker(false)}
+        onSelect={(dest) => { setDestination(dest); setShowPicker(false); }}
+        currentLocation={currentLat != null && currentLng != null ? { name: 'Current location', lat: currentLat, lng: currentLng } : undefined}
+      />
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -296,6 +341,20 @@ export default function QrRideSetupScreen() {
             <View style={styles.group}>
               {!destination ? (
                 <Text style={styles.fareHint}>Choose a destination to see your fare.</Text>
+              ) : quote && (!quoteFresh || isQuoting || isLocating) ? (
+                <>
+                  <View style={styles.quoteLoading}>
+                    <ActivityIndicator size="small" color={COLORS.primary} />
+                    <Text style={styles.fareHint}>Estimated fare · updating…</Text>
+                  </View>
+                  <FareLine label="Distance" value={`${quote.distance_km.toFixed(1)} km${quote.distance_source === 'fallback' ? ' (est.)' : ''}`} />
+                  <FareLine label="Fare per passenger" value={formatPeso(quote.fare_per_passenger)} />
+                  <FareLine label="Passengers" value={`× ${quote.party_size}`} />
+                  <View style={styles.totalRow}>
+                    <Text style={styles.totalLabel}>Estimated total</Text>
+                    <Text style={[styles.totalValue, styles.estimateValue]}>{formatPeso(quote.fare_amount)}</Text>
+                  </View>
+                </>
               ) : isQuoting || isLocating ? (
                 <View style={styles.quoteLoading}>
                   <ActivityIndicator size="small" color={COLORS.primary} />
@@ -326,27 +385,20 @@ export default function QrRideSetupScreen() {
           {joinError ? <Text style={[styles.errorText, styles.footerError]}>{joinError.message}</Text> : null}
           <View style={styles.footerRow}>
             <View style={styles.flex}>
-              <Text style={styles.caption}>Total fare</Text>
+              <Text style={styles.caption}>{quoteFresh ? 'Total fare' : 'Estimated total'}</Text>
               <Text style={styles.footerAmount}>{quote ? formatPeso(quote.fare_amount) : '—'}</Text>
             </View>
             <Button
               label="Join Ride"
-              onPress={() => joinRide(paymentMethod)}
+              onPress={() => joinRide(currentSignature, paymentMethod)}
               loading={isJoining}
-              disabled={!quote || isQuoting}
+              disabled={!quoteFresh || isQuoting}
               fullWidth={false}
               style={styles.joinBtn}
             />
           </View>
         </View>
       )}
-
-      <DestinationPickerModal
-        visible={showPicker}
-        onClose={() => setShowPicker(false)}
-        onSelect={(dest) => { setDestination(dest); setShowPicker(false); }}
-        currentLocation={currentLat != null && currentLng != null ? { name: 'Current location', lat: currentLat, lng: currentLng } : undefined}
-      />
     </View>
   );
 }
@@ -440,6 +492,7 @@ const styles = StyleSheet.create({
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: COLORS.borderLight, marginTop: SPACING.xs, paddingVertical: SPACING.sm + 2 },
   totalLabel: { ...TYPOGRAPHY.bodyLarge, color: COLORS.textPrimary },
   totalValue: { ...TYPOGRAPHY.h2, color: COLORS.textPrimary },
+  estimateValue: { color: COLORS.textMuted },
   fareNote: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary },
   errorText: { ...TYPOGRAPHY.bodySmall, color: COLORS.dangerDark, paddingVertical: SPACING.sm },
 

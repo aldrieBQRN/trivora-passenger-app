@@ -6,7 +6,7 @@ import { HistoryItem, TripReceipt } from '../types';
 import { ChevronRight, Receipt, Star } from 'lucide-react-native';
 import RouteSummaryStrip from '../components/RouteSummaryStrip';
 import { calculateFare } from '../constants/todaRoutes';
-import TripReceiptModal from '../components/TripReceiptModal';
+import TripReceiptScreen from './TripReceiptScreen';
 import EmptyState from '../components/EmptyState';
 import ScreenHeader from '../components/ScreenHeader';
 import FilterTabs from '../components/FilterTabs';
@@ -29,7 +29,7 @@ export default function HistoryScreen({ onBackToMap: _onBackToMap }: HistoryScre
   const [selectedReceipt, setSelectedReceipt] = useState<TripReceipt | null>(null);
 
   // Silent one-shot re-sync of the list whenever History is opened — the local filter and the
-  // open-receipt modal above are untouched by it, and it never runs again while the screen is
+  // open receipt above are untouched by it, and it never runs again while the screen is
   // up (no polling, no interruption to anything the passenger is doing).
   useEffect(() => {
     refreshHistory();
@@ -134,6 +134,10 @@ export default function HistoryScreen({ onBackToMap: _onBackToMap }: HistoryScre
     );
   };
 
+  if (selectedReceipt) {
+    return <TripReceiptScreen receipt={selectedReceipt} onBack={() => setSelectedReceipt(null)} />;
+  }
+
   return (
     <View style={styles.container}>
       {/* Plain title-only header, same treatment as the Driver app's inner pages — no
@@ -165,15 +169,6 @@ export default function HistoryScreen({ onBackToMap: _onBackToMap }: HistoryScre
           />
         }
       />
-
-      {/* Trip Receipt Modal */}
-      {selectedReceipt && (
-        <TripReceiptModal
-          visible={!!selectedReceipt}
-          onClose={() => setSelectedReceipt(null)}
-          receipt={selectedReceipt}
-        />
-      )}
     </View>
   );
 }

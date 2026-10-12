@@ -182,6 +182,7 @@ export default function TrivoraMapNative({
         if (routeCoordinates && routeCoordinates.length > 0) {
           const step = Math.max(1, Math.ceil(routeCoordinates.length / MAX_FIT_ROUTE_POINTS));
           routeCoordinates.forEach((c, i) => {
+            if (!Number.isFinite(c.lat) || !Number.isFinite(c.lng)) return;
             if (i % step === 0 || i === routeCoordinates.length - 1) points.push({ lat: c.lat, lng: c.lng });
           });
         }
@@ -239,8 +240,11 @@ export default function TrivoraMapNative({
     if (onRecenter) onRecenter();
   };
 
-  const polylineCoords = routeCoordinates || [];
-  const routeFeature = useMemo(() => routeLineFeature(routeCoordinates || []), [routeCoordinates]);
+  const polylineCoords = useMemo(
+    () => (routeCoordinates || []).filter((c) => Number.isFinite(c.lat) && Number.isFinite(c.lng)),
+    [routeCoordinates]
+  );
+  const routeFeature = useMemo(() => routeLineFeature(polylineCoords), [polylineCoords]);
 
   const isFallbackRoute = routeSource === 'fallback';
 

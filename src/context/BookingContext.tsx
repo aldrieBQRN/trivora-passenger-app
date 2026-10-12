@@ -542,6 +542,8 @@ export function BookingProvider({ children }: { children: ReactNode }) {
   // changes) can't have its result overwritten by a slower, now-stale one.
   const refreshRoute = (origin: LocationPoint, destination: LocationPoint, zone: TodaZone) => {
     const requestId = ++routeRequestIdRef.current;
+    setRouteCoordinates([]);
+    setRouteSource('fallback');
     fetchRoute({ lat: origin.lat, lng: origin.lng }, { lat: destination.lat, lng: destination.lng }).then(
       (result) => {
         if (requestId !== routeRequestIdRef.current) return;
