@@ -23,6 +23,7 @@ const ONBOARDING_STORAGE_KEY = '@trivora_passenger_onboarding_done';
 // 12 Specification Screens
 import OnboardingScreen from './src/screens/OnboardingScreen';
 import AuthScreen from './src/screens/AuthScreen';
+import ForgotPasswordScreen from './src/screens/ForgotPasswordScreen';
 import HomeScreen from './src/screens/HomeScreen';
 import DestinationRouteScreen from './src/screens/DestinationRouteScreen';
 import RideConfirmationScreen from './src/screens/RideConfirmationScreen';
@@ -55,6 +56,8 @@ function PassengerAppNavigator() {
 
   const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>('home');
+  // Email the Forgot Password flow was opened with; null while on the normal Login screen.
+  const [forgotPasswordEmail, setForgotPasswordEmail] = useState<string | null>(null);
 
   // Track previous authentication state to detect logout vs initial load
   const wasAuthenticatedRef = useRef(false);
@@ -120,8 +123,17 @@ function PassengerAppNavigator() {
 
     // Screen 2: Login / Register
     if (!isAuthenticated || screenState === 'auth') {
+      if (forgotPasswordEmail !== null) {
+        return (
+          <ForgotPasswordScreen
+            initialEmail={forgotPasswordEmail}
+            onBack={() => setForgotPasswordEmail(null)}
+          />
+        );
+      }
       return (
         <AuthScreen
+          onForgotPassword={setForgotPasswordEmail}
           onAuthenticated={() => {
             setScreenState('home');
             setActiveTab('home');

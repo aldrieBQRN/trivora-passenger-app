@@ -122,6 +122,16 @@ interface BookingContextType {
    * on their accept/decline/timeout); 'searching' means dispatch is between offers or has no
    * eligible driver right now. Null once the booking has left the pending/searching phase. */
   dispatchState: 'searching' | 'driver_found' | null;
+  /** True when all 3 search rounds have completed without an accepted driver. */
+  isNoDriverFound: boolean;
+  /** Active dispatch search round (1 = 500m, 2 = 1km, 3 = 2km). */
+  dispatchRound: number;
+  /** Active search radius in meters (500, 1000, 2000). */
+  dispatchRadiusM: number;
+  /** Retries booking with identical route, fare and passenger parameters. */
+  retryBooking: () => Promise<void>;
+  /** Dismisses no-driver state and returns to destination selection to edit details. */
+  dismissNoDriver: () => void;
   driverDistanceKm: number;
   driverEtaMinutes: number;
   tripRemainingKm: number;
@@ -382,6 +392,9 @@ export function BookingProvider({ children }: { children: ReactNode }) {
   const [searchCountdown, setSearchCountdown] = useState<number>(REAL_SEARCH_CYCLE_SECONDS);
   const [searchStatusText, setSearchStatusText] = useState<string>('Searching for a driver...');
   const [dispatchState, setDispatchState] = useState<'searching' | 'driver_found' | null>(null);
+  const [isNoDriverFound, setIsNoDriverFound] = useState<boolean>(false);
+  const [dispatchRound, setDispatchRound] = useState<number>(1);
+  const [dispatchRadiusM, setDispatchRadiusM] = useState<number>(500);
   const [driverDistanceKm, setDriverDistanceKm] = useState<number>(1.2);
   const [driverEtaMinutes, setDriverEtaMinutes] = useState<number>(3);
   const [tripRemainingKm, setTripRemainingKm] = useState<number>(0);
@@ -696,6 +709,7 @@ export function BookingProvider({ children }: { children: ReactNode }) {
   };
 
   const startBookingFlow = () => {
+    setIsNoDriverFound(false);
     setScreenState('destination_select');
     // "Book a Tricycle" always starts a fresh destination pick — clears any destination left
     // over from an earlier pass through this flow (e.g. the passenger went back to Home without
@@ -714,6 +728,10 @@ export function BookingProvider({ children }: { children: ReactNode }) {
     numberOfPassengers: number,
     selectedPaymentMethod: PaymentMethod = paymentMethod
   ): Promise<void> => {
+    setIsNoDriverFound(false);
+    setDispatchRound(1);
+    setDispatchRadiusM(500);
+
     if (BOOKING_MODE === 'simulated') {
       setScreenState('searching');
       setSearchCountdown(8);
@@ -763,7 +781,20 @@ export function BookingProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const retryBooking = async (): Promise<void> => {
+    setIsNoDriverFound(false);
+    await confirmBooking(fareEstimate.passengerCount, paymentMethod);
+  };
+
+  const dismissNoDriver = (): void => {
+    setIsNoDriverFound(false);
+    setRealBookingId(null);
+    setDispatchState(null);
+    setScreenState('destination_select');
+  };
+
   const cancelBooking = async (): Promise<boolean> => {
+    setIsNoDriverFound(false);
     if (BOOKING_MODE === 'real' && realBookingId) {
       try {
         await passengerApi.cancelBooking(realBookingId, 'Cancelled by passenger');
@@ -882,19 +913,13 @@ export function BookingProvider({ children }: { children: ReactNode }) {
   // Driver-matching countdown: single source shared by SearchingDriversScreen
   // so it doesn't need its own local setInterval.
   useEffect(() => {
-    if (screenState !== 'searching') return;
-    if (BOOKING_MODE !== 'real' && searchCountdown <= 0) return;
+    if (screenState !== 'searching' || isNoDriverFound) return;
+    if (searchCountdown <= 0) return;
     const timer = setTimeout(() => {
-      setSearchCountdown((prev) => {
-        if (prev > 1) return prev - 1;
-        if (BOOKING_MODE === 'real') {
-          return REAL_SEARCH_CYCLE_SECONDS;
-        }
-        return 0;
-      });
+      setSearchCountdown((prev) => (prev > 1 ? prev - 1 : 0));
     }, 1000);
     return () => clearTimeout(timer);
-  }, [screenState, searchCountdown]);
+  }, [screenState, searchCountdown, isNoDriverFound]);
 
   // Status copy tracks the same countdown thresholds the screen used to
   // compute locally: searching -> matched -> accepted. Simulation-only.
@@ -1108,6 +1133,12 @@ export function BookingProvider({ children }: { children: ReactNode }) {
         if (!booking) return;
 
         if (booking.status === 'cancelled') {
+          if (booking.cancellation_reason === 'no_driver_available') {
+            setIsNoDriverFound(true);
+            setRealBookingId(null);
+            setDispatchState(null);
+            return;
+          }
           showToast('Your ride was cancelled.', 'info');
           setRealBookingId(null);
           setDispatchState(null);
@@ -1119,12 +1150,18 @@ export function BookingProvider({ children }: { children: ReactNode }) {
         // acceptance" vs "Searching for a driver..." label directly from server state, never
         // from a local timer (see `dispatch_state` on the Booking model).
         if (booking.status === 'pending') {
+          const round = Number(booking.dispatch_round || 1);
+          const radiusM = Number(booking.dispatch_radius_m || 500);
+          setDispatchRound(round);
+          setDispatchRadiusM(radiusM);
+
           if (booking.dispatch_state === 'driver_found') {
             setDispatchState('driver_found');
-            setSearchStatusText('Waiting for acceptance...');
+            setSearchStatusText('Driver found nearby! Waiting for acceptance...');
           } else {
             setDispatchState('searching');
-            setSearchStatusText('Searching for a driver...');
+            const radiusLabel = radiusM >= 1000 ? `${radiusM / 1000} km` : `${radiusM}m`;
+            setSearchStatusText(`Searching within ${radiusLabel} (Round ${round} of 3)...`);
           }
         } else {
           setDispatchState(null);
@@ -1386,6 +1423,7 @@ export function BookingProvider({ children }: { children: ReactNode }) {
   };
 
   const resetToHome = () => {
+    setIsNoDriverFound(false);
     setRealBookingId(null);
     resetReviewForm();
     setScreenState('home');
@@ -1422,6 +1460,11 @@ export function BookingProvider({ children }: { children: ReactNode }) {
         searchCountdown,
         searchStatusText,
         dispatchState,
+        isNoDriverFound,
+        dispatchRound,
+        dispatchRadiusM,
+        retryBooking,
+        dismissNoDriver,
         driverDistanceKm,
         driverEtaMinutes,
         tripRemainingKm,

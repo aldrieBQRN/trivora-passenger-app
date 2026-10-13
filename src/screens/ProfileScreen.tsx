@@ -108,7 +108,8 @@ export default function ProfileScreen() {
     setExpandedKey((prev) => (prev === key ? null : key));
   };
 
-  const handleSaveProfile = async (fields: Partial<UserProfile>) => {
+  /** Returns false when the save failed, so the Edit Profile sheet stays open. */
+  const handleSaveProfile = async (fields: Partial<UserProfile>): Promise<boolean> => {
     // Name/email/mobile are applied optimistically to local state, same as before this fix —
     // that part of Edit Profile was never reported broken. Emergency Contact is the one field
     // with no backend persistence at all, so it's saved through the API here and reconciled with
@@ -124,11 +125,12 @@ export default function ProfileScreen() {
         updateProfile({ emergencyContact: parseEmergencyContact(res?.user?.emergency_contact) });
       } catch (err: any) {
         showToast(err?.message || 'Could not save your emergency contact. Please try again.', 'info');
-        return;
+        return false;
       }
     }
 
     showToast('Profile updated');
+    return true;
   };
 
   const handleLogoutPress = () => {

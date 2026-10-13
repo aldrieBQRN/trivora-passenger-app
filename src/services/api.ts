@@ -178,10 +178,52 @@ export const passengerApi = {
     password: string;
     terms_accepted: boolean;
     privacy_policy_accepted: boolean;
+    /** From verifyRegistrationCode — registration is refused without it. */
+    email_verification_token: string;
   }) => {
     return request('/passenger/register', {
       method: 'POST',
       body: JSON.stringify(payload),
+    });
+  },
+
+  /** Sign-up step 1: email a 6-digit code (422 with a message if the email already has an
+   * account or a code was sent under a minute ago). */
+  sendRegistrationCode: async (email: string) => {
+    return request('/passenger/register/send-code', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  },
+
+  /** Sign-up step 2: exchange the correct code for the one-time verification token. */
+  verifyRegistrationCode: async (email: string, code: string): Promise<{ verification_token: string }> => {
+    return request('/passenger/register/verify-code', {
+      method: 'POST',
+      body: JSON.stringify({ email, code }),
+    });
+  },
+
+  /** Forgot password: emails a 6-digit code to a registered address (422 with a message if the
+   * email isn't registered or a code was sent less than a minute ago). */
+  forgotPassword: async (email: string) => {
+    return request('/passenger/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  },
+
+  verifyResetCode: async (email: string, otp: string) => {
+    return request('/passenger/forgot-password/verify', {
+      method: 'POST',
+      body: JSON.stringify({ email, otp }),
+    });
+  },
+
+  resetPassword: async (email: string, otp: string, password: string) => {
+    return request('/passenger/forgot-password/reset', {
+      method: 'POST',
+      body: JSON.stringify({ email, otp, password, password_confirmation: password }),
     });
   },
 

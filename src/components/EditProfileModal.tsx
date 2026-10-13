@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, RADIUS, SHADOWS, SPACING, BUTTONS, TYPOGRAPHY } from '../constants/theme';
 import { UserProfile } from '../types';
 import { X, User, Mail, Phone, ShieldAlert } from 'lucide-react-native';
@@ -18,7 +19,8 @@ interface EditProfileModalProps {
   visible: boolean;
   onClose: () => void;
   user: UserProfile | null;
-  onSave: (fields: Partial<UserProfile>) => void;
+  /** Resolve `false` to keep the sheet open (save failed); anything else closes it. */
+  onSave: (fields: Partial<UserProfile>) => Promise<boolean | void> | boolean | void;
 }
 
 function digitsOnly(value: string): string {
@@ -26,6 +28,8 @@ function digitsOnly(value: string): string {
 }
 
 export default function EditProfileModal({ visible, onClose, user, onSave }: EditProfileModalProps) {
+  // Bottom sheet clears the phone's navigation bar (gesture or 3-button).
+  const insets = useSafeAreaInsets();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [mobile, setMobile] = useState('');
@@ -34,7 +38,8 @@ export default function EditProfileModal({ visible, onClose, user, onSave }: Edi
   const [errors, setErrors] = useState<{ name?: string; email?: string; mobile?: string }>({});
   const [saving, setSaving] = useState(false);
 
-  // Re-seed the form from the current user each time the modal opens.
+  // Re-seed the form from the current user each time the modal OPENS — not on every `user`
+  // change, since saving updates `user` optimistically mid-save and would reset the spinner.
   useEffect(() => {
     if (visible && user) {
       setName(user.name || '');
@@ -45,9 +50,10 @@ export default function EditProfileModal({ visible, onClose, user, onSave }: Edi
       setErrors({});
       setSaving(false);
     }
-  }, [visible, user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const nextErrors: { name?: string; email?: string; mobile?: string } = {};
     if (name.trim().length < 2) nextErrors.name = 'Enter your full name';
     if (!/^\S+@\S+\.\S+$/.test(email.trim())) nextErrors.email = 'Enter a valid email address';
@@ -58,17 +64,20 @@ export default function EditProfileModal({ visible, onClose, user, onSave }: Edi
       return;
     }
 
+    // The spinner lasts exactly as long as the real save; the sheet closes only on success
+    // (the screen reports failures itself).
     setSaving(true);
-    setTimeout(() => {
-      onSave({
+    try {
+      const result = await onSave({
         name: name.trim(),
         email: email.trim(),
         mobile: mobile.trim(),
         emergencyContact: { name: contactName.trim(), phone: contactPhone.trim() },
       });
+      if (result !== false) onClose();
+    } finally {
       setSaving(false);
-      onClose();
-    }, 500);
+    }
   };
 
   return (
@@ -77,7 +86,7 @@ export default function EditProfileModal({ visible, onClose, user, onSave }: Edi
         style={styles.overlay}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <View style={styles.contentCard}>
+        <View style={[styles.contentCard, { paddingBottom: Math.max(insets.bottom + SPACING.sm, Platform.OS === 'ios' ? 34 : 20) }]}>
           <View style={styles.header}>
             <Text style={styles.title}>Edit Profile</Text>
             <TouchableOpacity style={styles.closeButton} onPress={onClose} activeOpacity={0.7}>

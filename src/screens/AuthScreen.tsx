@@ -20,10 +20,13 @@ import { User, Mail, Lock, Eye, EyeOff, Check } from 'lucide-react-native';
 import { passengerApi, mapAuthResponseToUserProfile, getApiBaseUrl } from '../services/api';
 import Button from '../components/Button';
 import LegalDocumentModal from '../components/LegalDocumentModal';
+import EmailCodeModal from '../components/EmailCodeModal';
 import { LEGAL_LAST_UPDATED, TERMS_SECTIONS, PRIVACY_SECTIONS } from '../constants/legalDocuments';
 
 interface AuthScreenProps {
   onAuthenticated: () => void;
+  /** Opens the emailed-code reset flow, prefilled with whatever email is typed so far. */
+  onForgotPassword: (email: string) => void;
 }
 
 const DEMO_PASSENGER: UserProfile = {
@@ -58,7 +61,7 @@ interface FormErrors {
   terms?: string;
 }
 
-export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
+export default function AuthScreen({ onAuthenticated, onForgotPassword }: AuthScreenProps) {
   const { login } = useAuth();
   const { isConnected, checkConnection } = useNetwork();
   const [isRegister, setIsRegister] = useState(false);
@@ -75,6 +78,10 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
   const [legalModal, setLegalModal] = useState<'terms' | 'privacy' | null>(null);
   const [errors, setErrors] = useState<FormErrors>({});
   const [loading, setLoading] = useState(false);
+  // Sign-up email verification: a 6-digit code is emailed and must be entered in the modal
+  // before the account is created.
+  const [codeModalVisible, setCodeModalVisible] = useState(false);
+  const [codeResendAfter, setCodeResendAfter] = useState(60);
 
   // Onboarding's last slide is a dark full-bleed photo; this screen is plain white — the
   // biggest color jump in the whole Splash->Onboarding->Login flow. A quick fade-in (same
@@ -101,13 +108,81 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
     }, 700);
   };
 
-  // There's no password-reset endpoint in the backend, so this doesn't pretend to send a reset
-  // link — it points to the same real support contact already shown on the Profile screen.
   const handleForgotPassword = () => {
+    onForgotPassword(email.trim());
+  };
+
+  // ── Sign-up: email a code, then create the account once the code is verified ──
+  const showServerUnreachable = (err: any, retry: () => void, demoProfile: UserProfile) => {
     Alert.alert(
-      'Forgot Password?',
-      'For assistance, contact the Trivora Help Center at (043) 931-5678 or support@trivora-nasugbu.gov.ph.'
+      'Cloud Server Unreachable',
+      `Unable to connect to the Trivora cloud backend.\n\nDetails: ${err?.message || 'Network Timeout'}\nServer: ${getApiBaseUrl()}\n\nPlease verify your phone has an active internet connection and tap Retry.`,
+      [
+        { text: 'Retry', onPress: retry },
+        { text: 'Continue in Demo Mode', onPress: () => runAuth(demoProfile) },
+      ]
     );
+  };
+
+  const demoRegisteredProfile = (): UserProfile => ({
+    id: Date.now(),
+    name: fullName.trim(),
+    email: email.trim(),
+    mobile: `+63 ${digitsOnly(phoneNumber)}`,
+    rating: 5.0,
+    totalRides: 0,
+    emergencyContact: { name: '', phone: '' },
+  });
+
+  const startEmailVerification = async () => {
+    setLoading(true);
+    try {
+      const res: any = await passengerApi.sendRegistrationCode(email.trim());
+      setCodeResendAfter(res?.resend_after_seconds ?? 60);
+      setCodeModalVisible(true);
+    } catch (err: any) {
+      if (err?.status !== undefined) {
+        // e.g. email already registered, or a code was sent less than a minute ago.
+        setErrors({ email: err.message || 'We could not send a verification code to this email.' });
+        return;
+      }
+      showServerUnreachable(err, startEmailVerification, demoRegisteredProfile());
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /** Called by the modal: verify the code, then create the account with the returned token. */
+  const verifyCodeAndRegister = async (code: string) => {
+    const { verification_token } = await passengerApi.verifyRegistrationCode(email.trim(), code);
+
+    try {
+      const res: any = await passengerApi.register({
+        name: fullName.trim(),
+        email: email.trim(),
+        mobile_number: `+63 ${digitsOnly(phoneNumber)}`,
+        password,
+        terms_accepted: agreedToTerms,
+        privacy_policy_accepted: agreedToTerms,
+        email_verification_token: verification_token,
+      });
+      setCodeModalVisible(false);
+      login(mapAuthResponseToUserProfile(res, email.trim()), res.token);
+      onAuthenticated();
+    } catch (err: any) {
+      // The code was right but the account couldn't be created (e.g. mobile number already
+      // used): close the modal and show the problem on the form.
+      setCodeModalVisible(false);
+      if (err?.status !== undefined) {
+        const fieldErrors = err?.data?.errors || {};
+        setErrors({
+          phone: fieldErrors.mobile_number?.[0],
+          email: fieldErrors.email?.[0] || (fieldErrors.mobile_number ? undefined : err.message),
+        });
+        return;
+      }
+      showServerUnreachable(err, () => verifyCodeAndRegister(code), demoRegisteredProfile());
+    }
   };
 
   const handleContinue = () => {
@@ -133,20 +208,15 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
       return;
     }
     setErrors({});
+
+    if (isRegister) {
+      startEmailVerification();
+      return;
+    }
+
     setLoading(true);
 
-    const executeAuth = () => {
-      return isRegister
-        ? passengerApi.register({
-            name: fullName.trim(),
-            email: email.trim(),
-            mobile_number: `+63 ${digitsOnly(phoneNumber)}`,
-            password,
-            terms_accepted: agreedToTerms,
-            privacy_policy_accepted: agreedToTerms,
-          })
-        : passengerApi.login(email.trim(), password);
-    };
+    const executeAuth = () => passengerApi.login(email.trim(), password);
 
     (async () => {
       try {
@@ -165,11 +235,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
       } catch (err: any) {
         setLoading(false);
         if (err?.status !== undefined) {
-          if (isRegister) {
-            setErrors({ email: err.message || 'Could not create your account. Please check your details.' });
-          } else {
-            setErrors({ password: err.message || 'Incorrect email or password. Please try again.' });
-          }
+          setErrors({ password: err.message || 'Incorrect email or password. Please try again.' });
           return;
         }
         Alert.alert(
@@ -179,21 +245,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
             { text: 'Retry', onPress: () => handleContinue() },
             {
               text: 'Continue in Demo Mode',
-              onPress: () => {
-                if (isRegister) {
-                  runAuth({
-                    id: Date.now(),
-                    name: fullName.trim(),
-                    email: email.trim(),
-                    mobile: `+63 ${digitsOnly(phoneNumber)}`,
-                    rating: 5.0,
-                    totalRides: 0,
-                    emergencyContact: { name: '', phone: '' },
-                  });
-                } else {
-                  runAuth({ ...DEMO_PASSENGER, email: email.trim() });
-                }
-              },
+              onPress: () => runAuth({ ...DEMO_PASSENGER, email: email.trim() }),
             },
           ]
         );
@@ -435,6 +487,16 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
         </ScrollView>
       </KeyboardAvoidingView>
 
+      <EmailCodeModal
+        visible={codeModalVisible}
+        email={email.trim()}
+        resendAfterSeconds={codeResendAfter}
+        onVerify={verifyCodeAndRegister}
+        onResend={async () => {
+          await passengerApi.sendRegistrationCode(email.trim());
+        }}
+        onClose={() => setCodeModalVisible(false)}
+      />
       <LegalDocumentModal
         visible={legalModal === 'terms'}
         onClose={() => setLegalModal(null)}

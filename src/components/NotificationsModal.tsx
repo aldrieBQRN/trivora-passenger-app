@@ -8,6 +8,7 @@ import {
   FlatList,
   Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '../constants/theme';
 import { NotificationItem } from '../types';
 import { X, Bell, Receipt, AlertTriangle, Info, CheckCircle2 } from 'lucide-react-native';
@@ -25,6 +26,8 @@ export default function NotificationsModal({
   notifications,
   onMarkRead,
 }: NotificationsModalProps) {
+  // Bottom sheet clears the phone's navigation bar (gesture or 3-button).
+  const insets = useSafeAreaInsets();
   const getNotificationIcon = (type: NotificationItem['type']) => {
     switch (type) {
       case 'receipt':
@@ -46,7 +49,7 @@ export default function NotificationsModal({
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.overlay}>
-        <View style={styles.contentCard}>
+        <View style={[styles.contentCard, { paddingBottom: Math.max(insets.bottom + SPACING.sm, Platform.OS === 'ios' ? 34 : 20) }]}>
           {/* Header */}
           <View style={styles.header}>
             <View style={styles.titleGroup}>

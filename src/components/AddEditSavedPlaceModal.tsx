@@ -10,6 +10,7 @@ import {
   Platform,
   KeyboardAvoidingView,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, RADIUS, SHADOWS, SPACING, BUTTONS, TYPOGRAPHY } from '../constants/theme';
 import { SavedPlace } from '../types';
 import { useCurrentLocation } from '../hooks/useCurrentLocation';
@@ -67,6 +68,8 @@ export default function AddEditSavedPlaceModal({
   editingPlace,
   onDelete,
 }: AddEditSavedPlaceModalProps) {
+  // Bottom sheet clears the phone's navigation bar (gesture or 3-button).
+  const insets = useSafeAreaInsets();
   const [step, setStep] = useState<'pick' | 'confirm'>('pick');
   const [picked, setPicked] = useState<PickedLocation | null>(null);
   const [label, setLabel] = useState('');
@@ -162,7 +165,7 @@ export default function AddEditSavedPlaceModal({
           save) layered on top of whichever screen/flow opened this picker in the first place. */}
       <Modal visible={visible && step === 'confirm'} animationType="slide" transparent onRequestClose={onClose}>
         <KeyboardAvoidingView style={styles.confirmOverlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-          <View style={styles.confirmSheet}>
+          <View style={[styles.confirmSheet, { paddingBottom: Math.max(insets.bottom + SPACING.sm, Platform.OS === 'ios' ? 34 : 20) }]}>
             <View style={[styles.header, styles.confirmHeader]}>
               {!editingPlace ? (
                 <TouchableOpacity style={styles.headerIconBtn} onPress={() => setStep('pick')} activeOpacity={0.7}>
