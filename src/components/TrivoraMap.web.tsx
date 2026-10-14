@@ -509,9 +509,16 @@ export default function TrivoraMapWeb({
         </TouchableOpacity>
       )}
 
-      {/* Floating Compass / Recenter Button */}
+      {/* Floating Compass / Recenter Button — same spot as Home's Focus button: right edge, just
+          above the bottom card. (It used to sit at the top-right, where the route card's swap
+          control covers it on the full-bleed booking/ride screens.) */}
       {showCompass && (
-        <TouchableOpacity style={styles.compassButton} onPress={handleRecenter} activeOpacity={0.8}>
+        <TouchableOpacity
+          style={[styles.compassButton, { bottom: bottomInset + 12 }]}
+          onPress={handleRecenter}
+          activeOpacity={0.8}
+          accessibilityLabel="Recenter map"
+        >
           <Compass size={18} color="#D97706" />
         </TouchableOpacity>
       )}
@@ -597,7 +604,6 @@ const styles = StyleSheet.create({
   },
   compassButton: {
     position: 'absolute',
-    top: 16,
     right: 16,
     width: 36,
     height: 36,

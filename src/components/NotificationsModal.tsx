@@ -17,14 +17,24 @@ interface NotificationsModalProps {
   visible: boolean;
   onClose: () => void;
   notifications: NotificationItem[];
-  onMarkRead: (id: number) => void;
+  /** Server-side unread total (may exceed the unread rows loaded in this list). */
+  unreadCount: number;
+  /** Marks the notification read and opens what it is about (e.g. the ride's e-receipt). */
+  onOpen: (item: NotificationItem) => void;
+  onMarkAllRead: () => void;
 }
 
+/**
+ * The passenger's notification center — the persistent notifications from NotificationsContext,
+ * the same items that arrive as phone notifications.
+ */
 export default function NotificationsModal({
   visible,
   onClose,
   notifications,
-  onMarkRead,
+  unreadCount,
+  onOpen,
+  onMarkAllRead,
 }: NotificationsModalProps) {
   // Bottom sheet clears the phone's navigation bar (gesture or 3-button).
   const insets = useSafeAreaInsets();
@@ -41,10 +51,6 @@ export default function NotificationsModal({
     }
   };
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
-  const handleMarkAllRead = () => {
-    notifications.filter((n) => !n.read).forEach((n) => onMarkRead(n.id));
-  };
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
@@ -55,10 +61,11 @@ export default function NotificationsModal({
             <View style={styles.titleGroup}>
               <Bell size={20} color={COLORS.primary} />
               <Text style={styles.title}>Notifications</Text>
+              {unreadCount > 0 && <Text style={styles.unreadLabel}>{unreadCount} unread</Text>}
             </View>
             <View style={styles.headerActions}>
               {unreadCount > 0 && (
-                <TouchableOpacity onPress={handleMarkAllRead} activeOpacity={0.7} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <TouchableOpacity onPress={onMarkAllRead} activeOpacity={0.7} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                   <Text style={styles.markAllText}>Mark all read</Text>
                 </TouchableOpacity>
               )}
@@ -78,7 +85,7 @@ export default function NotificationsModal({
             renderItem={({ item }) => (
               <TouchableOpacity
                 style={styles.itemRow}
-                onPress={() => onMarkRead(item.id)}
+                onPress={() => onOpen(item)}
                 activeOpacity={0.7}
               >
                 <View style={styles.iconCircle}>{getNotificationIcon(item.type)}</View>
@@ -143,6 +150,10 @@ const styles = StyleSheet.create({
   title: {
     ...TYPOGRAPHY.h3,
     color: COLORS.textPrimary,
+  },
+  unreadLabel: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
   },
   headerActions: {
     flexDirection: 'row',

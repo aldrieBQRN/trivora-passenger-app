@@ -42,6 +42,7 @@ export default function DestinationRouteScreen({ topInset = 0 }: DestinationRout
     const isPickupMode = pickerMode === 'pickup';
     return (
       <DestinationSearchScreen
+        topInset={topInset}
         onBack={() => setPickerMode(null)}
         mode={pickerMode}
         currentLocation={isPickupMode ? (hasDestination ? dropoff : undefined) : pickup}

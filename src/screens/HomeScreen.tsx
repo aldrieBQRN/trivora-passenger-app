@@ -7,7 +7,7 @@ import { Bell, Search, Home as HomeIcon, Briefcase, School, Bookmark, Plus, Chev
 import Avatar from '../components/Avatar';
 import TrivoraMap from '../components/TrivoraMap';
 import DestinationSearchScreen from './DestinationSearchScreen';
-import NotificationsModal from '../components/NotificationsModal';
+import { useNotifications } from '../context/NotificationsContext';
 import FloatingIconButton from '../components/FloatingIconButton';
 import MapLocationNotice from '../components/MapLocationNotice';
 import AddEditSavedPlaceModal from '../components/AddEditSavedPlaceModal';
@@ -42,9 +42,6 @@ export default function HomeScreen({
   const {
     pickup,
     selectDestination,
-    notifications,
-    unreadNotificationCount,
-    markNotificationRead,
     currentLat,
     currentLng,
     isLocatingPickup,
@@ -81,7 +78,9 @@ export default function HomeScreen({
     setPickerTab(tab);
     setShowDestinationPicker(true);
   };
-  const [showNotificationsModal, setShowNotificationsModal] = useState(false);
+  // The notification center itself is rendered app-wide (App.tsx) so a tapped phone notification
+  // can open it from any screen; the bell only opens it.
+  const { unreadCount, openCenter } = useNotifications();
 
   // Sheet eases up into place when Home opens (transform only, so its measured height is unchanged).
   const enter = useRef(new Animated.Value(0)).current;
@@ -102,7 +101,7 @@ export default function HomeScreen({
 
   const handleOpenNotifications = () => {
     if (onOpenNotifications) onOpenNotifications();
-    setShowNotificationsModal(true);
+    openCenter();
   };
 
   // Live position for the Home pin/Focus follow (see useLiveLocation) — falls back to the
@@ -118,6 +117,7 @@ export default function HomeScreen({
   if (showDestinationPicker) {
     return (
       <DestinationSearchScreen
+        topInset={topInset}
         onBack={() => setShowDestinationPicker(false)}
         onSelect={(dest) => { selectDestination(dest); setShowDestinationPicker(false); }}
         currentLocation={pickup}
@@ -171,7 +171,7 @@ export default function HomeScreen({
         <FloatingIconButton
           size={40}
           onPress={handleOpenNotifications}
-          hasBadge={unreadNotificationCount > 0}
+          hasBadge={unreadCount > 0}
           accessibilityLabel="Notifications"
           style={styles.headerIconBtn}
         >
@@ -332,13 +332,6 @@ export default function HomeScreen({
         visible={showAddPlace}
         onClose={() => setShowAddPlace(false)}
         onSave={handleAddPlace}
-      />
-
-      <NotificationsModal
-        visible={showNotificationsModal}
-        onClose={() => setShowNotificationsModal(false)}
-        notifications={notifications}
-        onMarkRead={markNotificationRead}
       />
     </View>
   );

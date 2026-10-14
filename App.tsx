@@ -14,6 +14,8 @@ import { BookingProvider, useBooking } from './src/context/BookingContext';
 import { SavedPlacesProvider } from './src/context/SavedPlacesContext';
 import { NetworkProvider } from './src/context/NetworkContext';
 import { QrRideProvider, useQrRide } from './src/context/QrRideContext';
+import { NotificationsProvider, useNotifications } from './src/context/NotificationsContext';
+import NotificationsModal from './src/components/NotificationsModal';
 import { ToastProvider } from './src/components/Toast';
 import OfflineBanner from './src/components/OfflineBanner';
 import { COLORS } from './src/constants/theme';
@@ -53,6 +55,19 @@ function PassengerAppNavigator() {
   const { isAuthenticated, isRestoring, login } = useAuth();
   const { screenState, setScreenState } = useBooking();
   const { stage: qrStage } = useQrRide();
+  const {
+    notifications,
+    unreadCount,
+    markAllRead,
+    isCenterOpen,
+    openCenter,
+    closeCenter,
+    openNotification,
+    pendingTarget,
+    clearPendingTarget,
+  } = useNotifications();
+  // A tapped "Trip completed" notification opens that ride's e-receipt in the Rides tab.
+  const [focusReceiptBookingId, setFocusReceiptBookingId] = useState<number | string | null>(null);
 
   const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>('home');
@@ -99,6 +114,26 @@ function PassengerAppNavigator() {
       wasAuthenticatedRef.current = false;
     }
   }, [isAuthenticated, setScreenState]);
+
+  // Opening a notification (phone tray or the in-app list) goes to what it is about. Live booking
+  // phases (driver en route, in transit…) are driven by BookingContext's own server poll, so those
+  // notifications only need Home; a completed ride opens its e-receipt; a fare change shows the
+  // notification itself.
+  useEffect(() => {
+    if (!pendingTarget || !isAuthenticated) return;
+    const { event, recordType, recordId } = pendingTarget;
+    clearPendingTarget();
+
+    if (recordType === 'booking' && event === 'booking_completed' && recordId != null) {
+      setActiveTab('trips');
+      setFocusReceiptBookingId(recordId);
+    } else if (recordType === 'fare_configuration') {
+      openCenter();
+    } else {
+      setActiveTab('home');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingTarget, isAuthenticated]);
 
   // Render current view
   const renderCurrentScreen = () => {
@@ -195,7 +230,13 @@ function PassengerAppNavigator() {
     }
 
     if (activeTab === 'trips') {
-      return <HistoryScreen onBackToMap={() => setActiveTab('home')} />;
+      return (
+        <HistoryScreen
+          onBackToMap={() => setActiveTab('home')}
+          focusBookingId={focusReceiptBookingId}
+          onFocusHandled={() => setFocusReceiptBookingId(null)}
+        />
+      );
     }
 
     if (activeTab === 'profile') {
@@ -268,6 +309,15 @@ function PassengerAppNavigator() {
           />
         )}
       </View>
+
+      <NotificationsModal
+        visible={isAuthenticated && isCenterOpen}
+        onClose={closeCenter}
+        notifications={notifications}
+        unreadCount={unreadCount}
+        onOpen={openNotification}
+        onMarkAllRead={markAllRead}
+      />
     </View>
   );
 }
@@ -278,13 +328,15 @@ export default function App() {
       <NetworkProvider>
         <ToastProvider>
           <AuthProvider>
-            <SavedPlacesProvider>
-              <BookingProvider>
-                <QrRideProvider>
-                  <PassengerAppNavigator />
-                </QrRideProvider>
-              </BookingProvider>
-            </SavedPlacesProvider>
+            <NotificationsProvider>
+              <SavedPlacesProvider>
+                <BookingProvider>
+                  <QrRideProvider>
+                    <PassengerAppNavigator />
+                  </QrRideProvider>
+                </BookingProvider>
+              </SavedPlacesProvider>
+            </NotificationsProvider>
           </AuthProvider>
         </ToastProvider>
       </NetworkProvider>

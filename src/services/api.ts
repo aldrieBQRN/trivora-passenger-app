@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
-import { DriverProfile, UserProfile, HistoryItem, SavedPlace, TodaZone, QrScanResult, QrQuote, QrActiveRide, NearbyPlace } from '../types';
+import { DriverProfile, UserProfile, HistoryItem, SavedPlace, TodaZone, QrScanResult, QrQuote, QrActiveRide, NearbyPlace, NotificationItem } from '../types';
 import { TODA_ZONES } from '../constants/todaRoutes';
 
 function getDefaultApiBaseUrl(): string {
@@ -227,6 +227,32 @@ export const passengerApi = {
     });
   },
 
+  // In-app notifications (AppNotificationController) — always this account's own, for this app.
+  getNotifications: async (page = 1) => {
+    return request(`/passenger/notifications?page=${page}`);
+  },
+
+  getUnreadNotificationCount: async (): Promise<{ unread_count: number }> => {
+    return request('/passenger/notifications/unread-count');
+  },
+
+  markNotificationRead: async (id: string) => {
+    return request(`/passenger/notifications/${encodeURIComponent(id)}/read`, { method: 'POST' });
+  },
+
+  markAllNotificationsRead: async () => {
+    return request('/passenger/notifications/read-all', { method: 'POST' });
+  },
+
+  /** Registers this device's Expo push token for the signed-in account (idempotent). The server
+   * removes it again when this session logs out. */
+  registerPushToken: async (token: string, platform: string) => {
+    return request('/passenger/push-token', {
+      method: 'POST',
+      body: JSON.stringify({ token, platform }),
+    });
+  },
+
   /** Validates the current token and returns the passenger's latest profile — used to restore a
    * session after a cold start (app relaunch/reload) instead of forcing a fresh login. */
   me: async () => {
@@ -390,6 +416,8 @@ export function parseEmergencyContact(raw: string | null | undefined): { name: s
   if (!raw) return { name: '', phone: '' };
   const match = raw.match(/^(.*?)\s*\(([^)]*)\)\s*$/);
   if (match) return { name: match[1].trim(), phone: match[2].trim() };
+  // The backend stores a phone-only contact as just the number — keep it in the phone field.
+  if (/^\+?[\d\s()-]{7,}$/.test(raw.trim())) return { name: '', phone: raw.trim() };
   return { name: raw.trim(), phone: '' };
 }
 
@@ -436,6 +464,40 @@ export function mapBookingDriverToProfile(booking: any): DriverProfile | null {
     },
     distanceKm: 0,
     etaMinutes: 0,
+  };
+}
+
+/** "Just now" / "5m ago" / "3h ago" / "2d ago" / "Oct 2" for a notification's timestamp. */
+export function notificationTimeLabel(iso: string | null): string {
+  if (!iso) return '';
+  const at = new Date(iso);
+  const seconds = Math.max(0, Math.floor((Date.now() - at.getTime()) / 1000));
+  if (seconds < 60) return 'Just now';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  if (seconds < 7 * 86400) return `${Math.floor(seconds / 86400)}d ago`;
+  return at.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+export function mapNotificationRecord(raw: any): NotificationItem {
+  const event: string | null = raw.event ?? null;
+  const type: NotificationItem['type'] =
+    event === 'booking_completed' ? 'receipt'
+      : event === 'booking_cancelled' ? 'alert'
+      : event === 'booking_accepted' ? 'promo'
+      : 'system';
+
+  return {
+    id: String(raw.id),
+    title: raw.title || '',
+    body: raw.message || '',
+    time: notificationTimeLabel(raw.created_at ?? null),
+    read: !!raw.read,
+    type,
+    event,
+    recordType: raw.record_type ?? null,
+    recordId: raw.record_id ?? null,
+    createdAt: raw.created_at ?? null,
   };
 }
 

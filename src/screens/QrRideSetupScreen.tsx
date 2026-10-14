@@ -91,8 +91,27 @@ export default function QrRideSetupScreen() {
     return () => clearInterval(interval);
   }, [refreshScan]);
 
-  // Server quote whenever the destination or party size changes, debounced by ~300ms. The passenger's own position is
-  // sent only as the server's fallback pick-up when the tricycle's GPS isn't fresh.
+  // The passenger's own position is only the server's fallback pick-up (used when the tricycle's GPS
+  // isn't fresh), so one fix per screen is enough. It is fetched as soon as the screen opens — while
+  // the passenger is still choosing a destination — and reused, instead of each quote (the first
+  // destination and every party-size change) waiting on a fresh GPS fix of up to 10s first.
+  const passengerFixRef = useRef<Promise<{ lat: number; lng: number } | null> | null>(null);
+  const getPassengerPosition = () => {
+    if (currentLat != null && currentLng != null) return Promise.resolve({ lat: currentLat, lng: currentLng });
+    if (!passengerFixRef.current) {
+      passengerFixRef.current = requestCurrentLocation().then((fix) => {
+        if (!fix) passengerFixRef.current = null; // failed — the next quote may try again
+        return fix;
+      });
+    }
+    return passengerFixRef.current;
+  };
+  useEffect(() => {
+    getPassengerPosition();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Server quote whenever the destination or party size changes, debounced by ~300ms.
   useEffect(() => {
     if (!canJoin || !destination) {
       clearQuote();
@@ -101,8 +120,7 @@ export default function QrRideSetupScreen() {
     let cancelled = false;
     const timer = setTimeout(async () => {
       if (!currentSignature) return;
-      let here = currentLat != null && currentLng != null ? { lat: currentLat, lng: currentLng } : null;
-      if (!here) here = await requestCurrentLocation();
+      const here = await getPassengerPosition();
       if (cancelled) return;
       if (!here) {
         setLocationError('Turn on location so Trivora can confirm where you are boarding.');

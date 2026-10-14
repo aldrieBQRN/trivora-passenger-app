@@ -158,13 +158,20 @@ export interface UserProfile {
   };
 }
 
+/** One persistent in-app notification from the backend (AppNotificationController). */
 export interface NotificationItem {
-  id: number;
+  id: string;
   title: string;
   body: string;
+  /** Relative label ("5m ago") computed when the list was fetched. */
   time: string;
   read: boolean;
+  /** Icon family, derived from `event`. */
   type: 'receipt' | 'alert' | 'promo' | 'system';
+  event: string | null;
+  recordType: string | null;
+  recordId: number | string | null;
+  createdAt: string | null;
 }
 
 export interface TripReceipt {

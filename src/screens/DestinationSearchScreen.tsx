@@ -62,10 +62,14 @@ interface DestinationSearchScreenProps {
   /** Overrides the header title. Defaults to "Change Pick-up" (pickup) / "Where are you going?"
    * (destination) — a caller like the Save Places add flow can pass something contextual. */
   title?: string;
+  /** Status-bar inset to clear. Only needed when opened from a full-bleed screen (Home, the route
+   * screen), which App.tsx doesn't pad — the same `topInset` those screens apply themselves. */
+  topInset?: number;
 }
 
 export default function DestinationSearchScreen({
   title,
+  topInset = 0,
   onBack,
   onSelect,
   mode = 'destination',
@@ -147,7 +151,7 @@ export default function DestinationSearchScreen({
   const headerTitle = title ?? (isPickup ? 'Change Pick-up' : 'Where are you going?');
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingTop: topInset }]}>
       <ScreenHeader title={headerTitle} onBack={onBack} />
 
       <KeyboardAvoidingView

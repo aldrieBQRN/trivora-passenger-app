@@ -13,6 +13,9 @@ import FilterTabs from '../components/FilterTabs';
 
 interface HistoryScreenProps {
   onBackToMap?: () => void;
+  /** Opens this booking's e-receipt once it is in the list (a tapped "Trip completed" notification). */
+  focusBookingId?: number | string | null;
+  onFocusHandled?: () => void;
 }
 
 type FilterTab = 'All' | 'Completed' | 'Cancelled';
@@ -23,7 +26,7 @@ const FILTER_OPTIONS = [
   { key: 'Cancelled', label: 'Cancelled' },
 ];
 
-export default function HistoryScreen({ onBackToMap: _onBackToMap }: HistoryScreenProps) {
+export default function HistoryScreen({ onBackToMap: _onBackToMap, focusBookingId = null, onFocusHandled }: HistoryScreenProps) {
   const { historyList, startRatingBooking, refreshHistory } = useBooking();
   const [activeFilter, setActiveFilter] = useState<FilterTab>('All');
   const [selectedReceipt, setSelectedReceipt] = useState<TripReceipt | null>(null);
@@ -83,6 +86,16 @@ export default function HistoryScreen({ onBackToMap: _onBackToMap }: HistoryScre
       mtopNumber: '',
     });
   };
+
+  // A focused booking opens as soon as the (re-)fetched history contains it.
+  useEffect(() => {
+    if (focusBookingId == null) return;
+    const item = historyList.find((h) => String(h.id) === String(focusBookingId));
+    if (!item) return;
+    openReceiptForHistory(item);
+    onFocusHandled?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusBookingId, historyList]);
 
   // Plain list row: pick-up -> destination with pins on the left, fare / status / rating on the right.
   const renderRideItem = ({ item }: { item: HistoryItem }) => {

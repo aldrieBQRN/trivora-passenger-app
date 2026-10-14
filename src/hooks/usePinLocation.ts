@@ -84,7 +84,7 @@ export function usePinLocation(
       if (!coords) return;
       setPinnedLocation({
         name: 'Current Location',
-        address: `Lat ${coords.lat.toFixed(4)}, Lng ${coords.lng.toFixed(4)}`,
+        address: 'Resolving address...',
         lat: coords.lat,
         lng: coords.lng,
         category: 'Pinned',
@@ -122,7 +122,7 @@ export function usePinLocation(
       // Optimistic placeholder while network calls are in flight
       setPinnedLocation({
         name: 'Pinned Location',
-        address: `Lat ${point.lat.toFixed(4)}, Lng ${point.lng.toFixed(4)}`,
+        address: 'Resolving address...',
         lat: point.lat,
         lng: point.lng,
         category: 'Pinned',

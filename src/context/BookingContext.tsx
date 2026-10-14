@@ -1,4 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, ReactNode } from 'react';
+import { AppState, Platform } from 'react-native';
+import * as Notifications from 'expo-notifications';
 import {
   LocationPoint,
   TodaZone,
@@ -8,7 +10,6 @@ import {
   HistoryItem,
   PaymentMethod,
   PaymentStatus,
-  NotificationItem,
   TripReceipt,
 } from '../types';
 import {
@@ -24,6 +25,7 @@ import { useToast } from '../components/Toast';
 import { useAuth } from './AuthContext';
 import { useCurrentLocation } from '../hooks/useCurrentLocation';
 import { getEcho, DriverLocationEventPayload } from '../services/echoService';
+import { extractPushData } from '../services/pushNotifications';
 
 export type PickupMode = 'current_location' | 'manual';
 
@@ -160,11 +162,6 @@ interface BookingContextType {
   selectedCompliments: string[];
   toggleCompliment: (tag: string) => void;
 
-  // Dynamic Notifications
-  notifications: NotificationItem[];
-  unreadNotificationCount: number;
-  markNotificationRead: (id: number) => void;
-
   // Dynamic E-Receipt
   latestReceipt: TripReceipt;
 
@@ -293,33 +290,6 @@ const INITIAL_HISTORY: HistoryItem[] = [
   },
 ];
 
-const INITIAL_NOTIFICATIONS: NotificationItem[] = [
-  {
-    id: 1,
-    title: 'Official Ride Receipt Ready',
-    body: 'Ride TRV-20240520-0941 to Nasugbu Municipal Hall is certified. View official MTOP breakdown.',
-    time: '2h ago',
-    read: false,
-    type: 'receipt',
-  },
-  {
-    id: 2,
-    title: 'Municipal Fare Tariff Update',
-    body: 'Municipal standard base fare ₱20.00 is active. Report any unauthorized overcharging.',
-    time: '1d ago',
-    read: false,
-    type: 'system',
-  },
-  {
-    id: 3,
-    title: 'Commuter Safety Priority',
-    body: 'Always verify the tricycle MTOP Sticker Number (e.g. 04-128) before boarding.',
-    time: '3d ago',
-    read: true,
-    type: 'alert',
-  },
-];
-
 const INITIAL_RECEIPT: TripReceipt = {
   bookingCode: 'TRV-20240520-0941',
   date: 'May 20, 2024',
@@ -423,7 +393,10 @@ export function BookingProvider({ children }: { children: ReactNode }) {
   // Real-backend booking state (BOOKING_MODE === 'real') — the id the backend assigned to the
   // passenger's own booking, polled via GET /passenger/bookings/active until the ride ends.
   const [realBookingId, setRealBookingId] = useState<number | string | null>(null);
+  // Bumped to re-run the active-booking resume check (foreground / booking push — see below).
+  const [resumeTick, setResumeTick] = useState(0);
   const realBookingPollRequestIdRef = useRef(0);
+  const realBookingPollAppliedIdRef = useRef(0);
   // The specific booking currently being rated — kept separately from realBookingId (which is
   // cleared the moment the poll sees 'completed', so polling stops). Set two ways: automatically
   // the moment a ride completes (so the immediate post-ride RateReviewScreen flow submits against
@@ -527,10 +500,33 @@ export function BookingProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, user?.id]);
+  }, [isAuthenticated, user?.id, resumeTick]);
 
-  // Dynamic Notifications state
-  const [notifications, setNotifications] = useState<NotificationItem[]>(INITIAL_NOTIFICATIONS);
+  // Re-syncs booking state from the server whenever the app returns to the foreground or a
+  // booking push arrives while it is open — a driver assignment, cancellation or completion that
+  // happened while Trivora was in the background or closed is picked up without a restart. An
+  // already-tracked ride keeps its own realBookingId poll; this only refreshes history and
+  // re-runs the resume check above.
+  useEffect(() => {
+    if (BOOKING_MODE !== 'real' || !isAuthenticated) return;
+    const resync = () => {
+      refreshHistory();
+      setResumeTick((t) => t + 1);
+    };
+    const appStateSub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') resync();
+    });
+    const pushSub =
+      Platform.OS === 'web'
+        ? null
+        : Notifications.addNotificationReceivedListener((n) => {
+            if (extractPushData(n.request.content.data).record_type === 'booking') resync();
+          });
+    return () => {
+      appStateSub.remove();
+      pushSub?.remove();
+    };
+  }, [isAuthenticated, refreshHistory]);
 
   // Dynamic E-Receipt state
   const [latestReceipt, setLatestReceipt] = useState<TripReceipt>(INITIAL_RECEIPT);
@@ -689,14 +685,6 @@ export function BookingProvider({ children }: { children: ReactNode }) {
     setFareEstimate(calculated);
     refreshRoute(oldDropoff, oldPickup, zone);
   };
-
-  const markNotificationRead = (id: number) => {
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, read: true } : n))
-    );
-  };
-
-  const unreadNotificationCount = notifications.filter((n) => !n.read).length;
 
   const toggleCompliment = (tag: string) => {
     setSelectedCompliments((prev) =>
@@ -895,17 +883,6 @@ export function BookingProvider({ children }: { children: ReactNode }) {
       rating: null,
     };
     addHistoryItem(newHistoryItem);
-
-    // Add notification
-    const newNotif: NotificationItem = {
-      id: Date.now(),
-      title: 'Ride Completed & Receipt Ready',
-      body: `Ride ${code} completed. Paid ₱${fareEstimate.total.toFixed(2)} via ${paymentMethod.toUpperCase()}.`,
-      time: 'Just now',
-      read: false,
-      type: 'receipt',
-    };
-    setNotifications((prev) => [newNotif, ...prev]);
 
     setScreenState('trip_completed');
   };
@@ -1121,14 +1098,17 @@ export function BookingProvider({ children }: { children: ReactNode }) {
     if (BOOKING_MODE !== 'real' || !realBookingId || !isAuthenticated) return;
 
     let cancelled = false;
-    // Guards against an in-flight request resolving after a NEWER one already has — e.g. a slow
-    // response for tick N arriving after tick N+1's faster response was already applied.
-    const requestId = ++realBookingPollRequestIdRef.current;
 
     const poll = async () => {
+      // Guards against an in-flight request resolving after a NEWER one already has — e.g. a slow
+      // response for tick N arriving after tick N+1's faster response was already applied. Taken
+      // per tick, so an out-of-order response can never move the ride back a phase, while a slow
+      // network (responses slower than the poll interval) still applies every newer result.
+      const requestId = ++realBookingPollRequestIdRef.current;
       try {
         const res: any = await passengerApi.getActiveBooking(undefined, realBookingId);
-        if (cancelled || requestId !== realBookingPollRequestIdRef.current) return;
+        if (cancelled || requestId < realBookingPollAppliedIdRef.current) return;
+        realBookingPollAppliedIdRef.current = requestId;
         const booking = res?.booking;
         if (!booking) return;
 
@@ -1303,14 +1283,18 @@ export function BookingProvider({ children }: { children: ReactNode }) {
     };
   }, [realBookingId, isAuthenticated, handleDriverPositionUpdate]);
 
+  // Read by the subscription's event handler below so the channel isn't torn down and re-joined
+  // every time the phase-dependent values change — previously each location event updated
+  // driverDistanceKm, which re-ran the effect and left/re-subscribed the channel on every event.
+  const screenStateRef = useRef(screenState);
+  screenStateRef.current = screenState;
+  const driverDistanceKmRef = useRef(driverDistanceKm);
+  driverDistanceKmRef.current = driverDistanceKm;
+  const isTrackingDriver = screenState === 'driver_en_route' || screenState === 'in_transit';
+
   // Real-mode Reverb WebSocket subscription for live driver location updates
   useEffect(() => {
-    if (
-      BOOKING_MODE !== 'real' ||
-      !realBookingId ||
-      !isAuthenticated ||
-      (screenState !== 'driver_en_route' && screenState !== 'in_transit')
-    ) {
+    if (BOOKING_MODE !== 'real' || !realBookingId || !isAuthenticated || !isTrackingDriver) {
       return;
     }
 
@@ -1332,12 +1316,13 @@ export function BookingProvider({ children }: { children: ReactNode }) {
         console.log(`[Reverb] DriverLocationUpdated received on ${channelName}:`, data);
       }
 
+      const phaseState = screenStateRef.current;
       handleDriverPositionUpdate(
         { lat: Number(data.latitude), lng: Number(data.longitude) },
         data.heading_deg,
         data.recorded_at,
-        screenState === 'in_transit' ? 'transit' : 'pickup',
-        screenState === 'driver_en_route' && driverDistanceKm <= 0
+        phaseState === 'in_transit' ? 'transit' : 'pickup',
+        phaseState === 'driver_en_route' && driverDistanceKmRef.current <= 0
       );
     };
 
@@ -1358,7 +1343,7 @@ export function BookingProvider({ children }: { children: ReactNode }) {
         // ignore cleanup error
       }
     };
-  }, [realBookingId, isAuthenticated, screenState, driverDistanceKm, handleDriverPositionUpdate]);
+  }, [realBookingId, isAuthenticated, isTrackingDriver, handleDriverPositionUpdate]);
 
   // Entry point for rating an already-completed ride from Ride History (as opposed to the
   // immediate post-ride flow, which sets bookingIdToRate itself the moment the active-booking
@@ -1482,9 +1467,6 @@ export function BookingProvider({ children }: { children: ReactNode }) {
         setReviewComment,
         selectedCompliments,
         toggleCompliment,
-        notifications,
-        unreadNotificationCount,
-        markNotificationRead,
         latestReceipt,
         startBookingFlow,
         confirmBooking,

@@ -29,19 +29,19 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const SLIDES = [
   {
     key: 'book',
-    image: require('../../assets/onboarding/onboarding-1-book-a-ride.png'),
+    image: require('../../assets/onboarding/onboarding-1-book-a-ride.webp'),
     title: 'Book a Ride in Seconds',
     description: 'Request a tricycle to anywhere in Nasugbu — fixed municipal fares, no haggling.',
   },
   {
     key: 'finding',
-    image: require('../../assets/onboarding/onboarding-2-finding-a-ride.png'),
+    image: require('../../assets/onboarding/onboarding-2-finding-a-ride.webp'),
     title: "We'll Find You a Driver",
     description: 'Get matched with a verified tricycle nearby and track them on the way.',
   },
   {
     key: 'journey',
-    image: require('../../assets/onboarding/onboarding-3-the-journey.png'),
+    image: require('../../assets/onboarding/onboarding-3-the-journey.webp'),
     title: 'Ride Safely, Arrive Easily',
     description: 'Live ride sharing and one-tap SOS keep every ride safe from pick-up to destination.',
   },

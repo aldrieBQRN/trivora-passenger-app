@@ -301,9 +301,12 @@ export async function reverseGeocode(
     cacheSet(geocodeCache, key, result);
     return result;
   } catch {
+    // Never raw coordinates: callers show `address` as the place label (Home header, pickup), so a
+    // failed/slow lookup falls back to the same readable service-area label used everywhere else.
+    // Not cached, so the next lookup for this point tries Nominatim again.
     return {
       name: 'Nasugbu',
-      address: `Lat ${point.lat.toFixed(4)}, Lng ${point.lng.toFixed(4)}`,
+      address: 'Nasugbu, Batangas',
       source: 'fallback',
     };
   }

@@ -59,10 +59,14 @@ export default function ProfileScreen() {
     ? new Date(user.memberSince).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
     : '—';
 
+  // Only the passenger's real saved contact — the same value Edit Profile is seeded with. (This
+  // used to fill gaps with hardcoded demo values, so the row showed a contact that was never saved
+  // and the edit form, correctly seeded from the real value, appeared to have lost it.)
   const emergencyContact = user?.emergencyContact;
-  const emergencyContactName = emergencyContact?.name || 'Maria Baquiran';
-  const emergencyContactPhone = emergencyContact?.phone || '0906 703 5958';
-  const emergencyContactValue = `${emergencyContactName} · ${emergencyContactPhone}`;
+  const emergencyContactName = emergencyContact?.name?.trim() || '';
+  const emergencyContactPhone = emergencyContact?.phone?.trim() || '';
+  const emergencyContactValue =
+    [emergencyContactName, emergencyContactPhone].filter(Boolean).join(' · ') || 'Not set';
 
   // Saved Places used to be mirrored here as a static, unsynced readout — real, actionable
   // saved places now live in the destination picker's own Saved Places tab, so this list
@@ -74,7 +78,7 @@ export default function ProfileScreen() {
       key: 'emergency',
       label: 'Emergency Contacts',
       icon: PhoneCall,
-      subtitle: emergencyContactName,
+      subtitle: emergencyContactName || emergencyContactPhone || 'Not set',
       rows: [
         { label: 'Nasugbu PNP Police Station', value: '(043) 931-1234 / 117' },
         { label: 'Municipal Traffic Office (TMO)', value: '(043) 931-5678' },

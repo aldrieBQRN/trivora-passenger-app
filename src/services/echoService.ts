@@ -1,12 +1,23 @@
 import Echo from 'laravel-echo';
-import Pusher from 'pusher-js';
+import PusherImport from 'pusher-js';
 import { getApiBaseUrl, getAuthToken } from './api';
 
+// pusher-js ships different builds per platform: the web build exports the Pusher class itself,
+// but the React Native build Metro resolves on Android/iOS exports it as a named property
+// (`module.exports.Pusher = …`). A default import therefore yields `{ Pusher }` on native — not a
+// constructor — and Echo's `new window.Pusher(...)` threw the first time a channel was opened
+// (the moment a driver accepted the booking), crashing the release APK.
+const Pusher: typeof PusherImport = (PusherImport as any)?.Pusher ?? PusherImport;
+
 // In React Native / mobile environment, expose Pusher globally so Echo finds it
+if (typeof globalThis !== 'undefined') {
+  (globalThis as any).Pusher = Pusher;
+}
+if (typeof global !== 'undefined') {
+  (global as any).Pusher = Pusher;
+}
 if (typeof window !== 'undefined') {
   (window as any).Pusher = Pusher;
-} else if (typeof global !== 'undefined') {
-  (global as any).Pusher = Pusher;
 }
 
 export interface DriverLocationEventPayload {

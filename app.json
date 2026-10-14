@@ -29,8 +29,7 @@
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.RECORD_AUDIO",
         "android.permission.CAMERA"
-      ],
-      "usesCleartextTraffic": true
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -40,6 +39,12 @@
         "expo-location",
         {
           "locationWhenInUsePermission": "Trivora uses your location to set your pick-up point and match you with nearby tricycles."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#182B62"
         }
       ],
       [
@@ -56,7 +61,19 @@
           "recordAudioAndroid": false
         }
       ],
-      "@maplibre/maplibre-react-native"
+      "@maplibre/maplibre-react-native",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableProguardInReleaseBuilds": true,
+            "extraProguardRules": "-keep class org.maplibre.** { *; }\n-keep class com.facebook.react.** { *; }",
+            "ndk": {
+              "abiFilters": ["arm64-v8a", "armeabi-v7a"]
+            }
+          }
+        }
+      ]
     ],
     "updates": {
       "url": "https://u.expo.dev/40f9df69-61f4-42ea-9324-7105370d0c13"
