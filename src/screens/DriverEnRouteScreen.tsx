@@ -10,6 +10,7 @@ import ConfirmModal from '../components/ConfirmModal';
 import { useToast } from '../components/Toast';
 import { callPhoneNumber, messagePhoneNumber } from '../utils/deviceContact';
 import { shareTripDetails } from '../utils/shareTrip';
+import { formatPickupDistance } from '../utils/distance';
 
 interface DriverEnRouteScreenProps {
   topInset?: number;
@@ -101,7 +102,7 @@ export default function DriverEnRouteScreen({ topInset = 0 }: DriverEnRouteScree
         routeCoordinates={driverRouteCoordinates}
         routeSource={driverRouteSource}
         suggestedRouteInfo={{
-          distance: `${driverDistanceKm} km`,
+          distance: formatPickupDistance(driverDistanceKm),
           duration: `${driverEtaMinutes} min`,
         }}
         activeZone={matchedToda}
@@ -169,7 +170,7 @@ export default function DriverEnRouteScreen({ topInset = 0 }: DriverEnRouteScree
 
         <View style={styles.etaRow}>
           <Text style={styles.etaDistance}>
-            {hasArrived ? 'Driver has Arrived' : `${driverDistanceKm} km away`}
+            {hasArrived ? 'Driver has Arrived' : `${formatPickupDistance(driverDistanceKm)} away`}
           </Text>
           <Text style={styles.etaMinutes}>
             {hasArrived ? 'Waiting for you' : `${driverEtaMinutes} min`}

@@ -1,9 +1,11 @@
 import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { UserProfile } from '../types';
 import { setAuthToken, passengerApi, mapAuthResponseToUserProfile } from '../services/api';
-
-const SESSION_STORAGE_KEY = '@trivora_passenger_session';
+import {
+  persistPassengerSession,
+  clearPassengerSession,
+  restorePassengerSession,
+} from '../services/secureStorage';
 
 interface AuthContextType {
   user: UserProfile | null;
@@ -35,10 +37,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // session's cached profile in sync without re-threading the token through every call site.
   const tokenRef = useRef<string | null>(null);
 
-  const persistSession = async (userData: UserProfile, token: string | null) => {
-    if (!token) return;
+  const persistSession = async (userData: UserProfile, token: string | null = null) => {
     try {
-      await AsyncStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({ token, user: userData }));
+      await persistPassengerSession(userData, token);
     } catch {
       // Persistence is a convenience (staying logged in across a restart) — a failed write just
       // means this session won't survive one, not something to surface to the passenger.
@@ -61,7 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsAuthenticated(false);
     tokenRef.current = null;
     setAuthToken(null);
-    AsyncStorage.removeItem(SESSION_STORAGE_KEY).catch(() => {});
+    clearPassengerSession().catch(() => {});
     if (prevToken) {
       passengerApi.logout().catch(() => {});
     }
@@ -70,7 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const updateProfile = (fields: Partial<UserProfile>) => {
     setUser((prev) => {
       const next = prev ? { ...prev, ...fields } : null;
-      if (next) persistSession(next, tokenRef.current).catch(() => {});
+      if (next) persistSession(next, null).catch(() => {});
       return next;
     });
   };
@@ -81,7 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const res: any = await passengerApi.me();
       setUser((prev) => {
         const fresh = mapAuthResponseToUserProfile(res, prev?.email);
-        persistSession(fresh, tokenRef.current).catch(() => {});
+        persistSession(fresh, null).catch(() => {});
         return fresh;
       });
     } catch {
@@ -96,35 +97,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     (async () => {
       try {
-        const raw = await AsyncStorage.getItem(SESSION_STORAGE_KEY);
-        if (!raw) return;
-        const saved = JSON.parse(raw) as { token: string; user: UserProfile };
-        if (!saved?.token) return;
+        const { token, user: cachedUser } = await restorePassengerSession();
+        if (!token) return;
 
-        tokenRef.current = saved.token;
-        setAuthToken(saved.token);
+        tokenRef.current = token;
+        setAuthToken(token);
         try {
           const res: any = await passengerApi.me();
-          const freshUser = mapAuthResponseToUserProfile(res, saved.user?.email);
+          const freshUser = mapAuthResponseToUserProfile(res, cachedUser?.email);
           setUser(freshUser);
           setIsAuthenticated(true);
-          persistSession(freshUser, saved.token);
+          persistSession(freshUser, null);
         } catch (err: any) {
           if (err?.status === 401) {
             // Token actually revoked/expired server-side — the only case where restoring a
             // session should fall back to logged-out instead of trusting the cached copy.
             tokenRef.current = null;
             setAuthToken(null);
-            await AsyncStorage.removeItem(SESSION_STORAGE_KEY);
+            await clearPassengerSession();
           } else {
             // Backend unreachable or a transient error — trust the cached profile rather than
             // forcing the passenger to log in again over a connectivity hiccup.
-            setUser(saved.user);
+            setUser(cachedUser);
             setIsAuthenticated(true);
           }
         }
-      } catch {
-        // Corrupt/unreadable storage — proceed logged-out, same as a first-ever launch.
+      } catch (err: any) {
+        // Migration failure or corrupt/unreadable storage — proceed logged-out safely
+        if (__DEV__) {
+          console.warn('[auth] Passenger session restore error:', err?.message || 'Restore error');
+        }
+        tokenRef.current = null;
+        setAuthToken(null);
+        await clearPassengerSession().catch(() => {});
       } finally {
         setIsRestoring(false);
       }

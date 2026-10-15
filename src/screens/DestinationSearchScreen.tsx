@@ -65,11 +65,15 @@ interface DestinationSearchScreenProps {
   /** Status-bar inset to clear. Only needed when opened from a full-bleed screen (Home, the route
    * screen), which App.tsx doesn't pad — the same `topInset` those screens apply themselves. */
   topInset?: number;
+  /** false when only a place is being picked (Add a Place): "Pin location on map" then just
+   * drops a pin, without the pick-up pin and route a ride booking shows. Defaults to true. */
+  showPinRoute?: boolean;
 }
 
 export default function DestinationSearchScreen({
   title,
   topInset = 0,
+  showPinRoute = true,
   onBack,
   onSelect,
   mode = 'destination',
@@ -412,6 +416,7 @@ export default function DestinationSearchScreen({
           visible={showPinModal}
           onClose={() => setShowPinModal(false)}
           currentPickup={currentLocation}
+          showRoute={showPinRoute}
           initialLocation={initialLocation}
           mode={mode}
           onConfirmPin={(loc) => {
@@ -420,16 +425,18 @@ export default function DestinationSearchScreen({
             onBack();
           }}
         />
-
-        {/* Saved Places, as a full-screen layer covering this page rather than a second screen —
-            see showSavedPlacesOverlay above for why. Back just drops this flag, and the search
-            underneath (text, selected tab, etc.) is exactly as it was left. */}
-        {showSavedPlacesOverlay && (
-          <View style={styles.savedPlacesOverlay}>
-            <SavedPlacesScreen onBack={() => setShowSavedPlacesOverlay(false)} />
-          </View>
-        )}
       </KeyboardAvoidingView>
+
+      {/* Saved Places, as a full-screen layer covering this page rather than a second screen —
+          see showSavedPlacesOverlay above for why. Back just drops this flag, and the search
+          underneath (text, selected tab, etc.) is exactly as it was left. Rendered outside the
+          KeyboardAvoidingView so it also covers this page's header, re-applying topInset since
+          this layer sits over the root's status-bar padding. */}
+      {showSavedPlacesOverlay && (
+        <View style={[styles.savedPlacesOverlay, { paddingTop: topInset }]}>
+          <SavedPlacesScreen onBack={() => setShowSavedPlacesOverlay(false)} />
+        </View>
+      )}
     </View>
   );
 }

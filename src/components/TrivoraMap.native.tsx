@@ -1,8 +1,8 @@
 import React, { useRef, useEffect, useMemo, useCallback, useState } from 'react';
-import { View, Text, Image, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, Image, StyleSheet } from 'react-native';
 import { Map, Camera, Marker, GeoJSONSource, Layer, type CameraRef } from '@maplibre/maplibre-react-native';
 import { COLORS, RADIUS, SHADOWS } from '../constants/theme';
-import { Compass, Zap, LocateFixed } from 'lucide-react-native';
+import { Zap } from 'lucide-react-native';
 
 import { PICKUP_PIN_IMAGE, DESTINATION_PIN_IMAGE, TRICYCLE_MARKER_IMAGE } from '../constants/mapPins';
 import {
@@ -23,6 +23,7 @@ import { fetchTodaZones } from '../services/api';
 import { TodaZone } from '../types';
 import { TrivoraMapProps } from './TrivoraMap.types';
 import { haversineKm } from '../utils/routeInterpolation';
+import MapFocusButton from './MapFocusButton';
 
 /** Max route vertices used for fitBounds - covers the route's whole extent without walking
  * thousands of points on every reframe. */
@@ -370,51 +371,24 @@ export default function TrivoraMapNative({
 
       {/* Focus Current Location (Home only) — just above the bottom sheet; filled while following. */}
       {focusCurrentLocation && !hasRoute && (
-        <TouchableOpacity
-          style={[styles.focusButton, { bottom: bottomInset + 12 }, isFollowingUser && styles.focusButtonActive]}
+        <MapFocusButton
+          style={{ bottom: bottomInset + 12 }}
           onPress={handleFocusCurrentLocation}
-          activeOpacity={0.8}
           accessibilityLabel="Focus current location"
-        >
-          <LocateFixed size={18} color={isFollowingUser ? '#FFFFFF' : COLORS.primary} />
-        </TouchableOpacity>
+        />
       )}
 
       {/* Floating Compass / Recenter Button — same spot as Home's Focus button: right edge, just
           above the bottom card. (It used to sit at the top-right, where the route card's swap
           control covers it on the full-bleed booking/ride screens.) */}
       {showCompass && (
-        <TouchableOpacity
-          style={[styles.compassButton, { bottom: bottomInset + 12 }]}
-          onPress={handleRecenter}
-          activeOpacity={0.8}
-          accessibilityLabel="Recenter map"
-        >
-          <Compass size={18} color="#D97706" />
-        </TouchableOpacity>
+        <MapFocusButton style={{ bottom: bottomInset + 12 }} onPress={handleRecenter} />
       )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  focusButton: {
-    position: 'absolute',
-    right: 16,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.97)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    ...SHADOWS.sm,
-  },
-  focusButtonActive: {
-    backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary,
-  },
   container: {
     flex: 1,
     backgroundColor: '#FAF6EE',
@@ -473,18 +447,5 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
     letterSpacing: 0.3,
-  },
-  compassButton: {
-    position: 'absolute',
-    right: 16,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#E8DEC8',
-    ...SHADOWS.sm,
   },
 });

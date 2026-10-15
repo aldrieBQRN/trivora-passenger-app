@@ -29,6 +29,17 @@ import { extractPushData } from '../services/pushNotifications';
 
 export type PickupMode = 'current_location' | 'manual';
 
+/** The backend's road-route distance/ETA from the driver to pick-up (Booking::pickupEta). */
+type ServerPickupEta = { distanceKm: number; etaMinutes: number };
+
+/** Reads pickup_distance_km / pickup_eta_mins off a booking or location event; null when absent. */
+function parseServerPickupEta(distanceKm: unknown, etaMins: unknown): ServerPickupEta | null {
+  if (distanceKm == null || etaMins == null) return null;
+  const distance = Number(distanceKm);
+  const eta = Number(etaMins);
+  return Number.isFinite(distance) && Number.isFinite(eta) ? { distanceKm: distance, etaMinutes: eta } : null;
+}
+
 /**
  * Single decision point for the whole booking flow: 'real' talks to the Laravel backend end to
  * end (passenger creates a booking, eligible drivers see it, one of them accepts, the passenger
@@ -478,6 +489,18 @@ export function BookingProvider({ children }: { children: ReactNode }) {
           name: booking.dropoff_name,
           lat: Number(booking.dropoff_lat),
           lng: Number(booking.dropoff_lng),
+        });
+        // Redraw the booked pickup->dropoff route for the resumed ride — the maps show it for the
+        // whole trip. Fetched directly (not via refreshRoute) so the backend's fare isn't recomputed.
+        const routeRequestId = ++routeRequestIdRef.current;
+        setRouteCoordinates([]);
+        fetchRoute(
+          { lat: Number(booking.pickup_lat), lng: Number(booking.pickup_lng) },
+          { lat: Number(booking.dropoff_lat), lng: Number(booking.dropoff_lng) }
+        ).then((result) => {
+          if (cancelled || routeRequestId !== routeRequestIdRef.current) return;
+          setRouteCoordinates(result.coordinates);
+          setRouteSource(result.source);
         });
         // The breakdown (base/distanceFee/perPassengerFare) is recomputed from the same shared
         // formula, using the booking's real passenger_count, purely for display — `total` stays
@@ -1000,7 +1023,8 @@ export function BookingProvider({ children }: { children: ReactNode }) {
       rawHeading: unknown,
       recordedAt?: string | null,
       phase: 'pickup' | 'transit' = 'pickup',
-      isArrived: boolean = false
+      isArrived: boolean = false,
+      serverPickupEta: ServerPickupEta | null = null
     ) => {
       // 1. Guard against stale coordinates (ignore older timestamps)
       if (recordedAt) {
@@ -1037,18 +1061,25 @@ export function BookingProvider({ children }: { children: ReactNode }) {
 
       // 4. Update ETA/distance and road route when moving
       if (phase === 'pickup') {
-        const distanceKm = Number(calculateDistance({ name: '', ...driverPos }, pickup).toFixed(1));
+        // Prefer the server's road-route figure (the one the driver app shows too); the local
+        // straight-line estimate is only a fallback when the server didn't send one.
+        const distanceKm = serverPickupEta
+          ? serverPickupEta.distanceKm
+          : Number(calculateDistance({ name: '', ...driverPos }, pickup).toFixed(1));
+        const etaMinutes = serverPickupEta
+          ? serverPickupEta.etaMinutes
+          : Math.max(1, Math.round((distanceKm / 20) * 60));
         setActiveDriver((prev) => ({
           ...prev,
           distanceKm,
-          etaMinutes: Math.max(1, Math.round((distanceKm / 20) * 60)),
+          etaMinutes,
         }));
         if (isArrived) {
           setDriverDistanceKm(0);
           setDriverEtaMinutes(0);
         } else {
-          setDriverDistanceKm(Math.max(0.1, distanceKm));
-          setDriverEtaMinutes(Math.max(1, Math.round((distanceKm / 20) * 60)));
+          setDriverDistanceKm(Math.max(0.0001, distanceKm)); // >0 = not "arrived"; still formats as the real meters
+          setDriverEtaMinutes(etaMinutes);
         }
 
         const lastOrigin = driverRouteOriginRef.current;
@@ -1069,10 +1100,10 @@ export function BookingProvider({ children }: { children: ReactNode }) {
         if (movedFarEnough) {
           dropoffRouteOriginRef.current = driverPos;
           const requestId = ++dropoffRouteRequestIdRef.current;
+          // Remaining distance only — the map keeps drawing the full booked pickup->dropoff route
+          // (with the live driver marker), the same trip line the Driver app shows in this phase.
           fetchRoute(driverPos, { lat: dropoff.lat, lng: dropoff.lng }).then((result) => {
             if (requestId !== dropoffRouteRequestIdRef.current) return;
-            setRouteCoordinates(result.coordinates);
-            setRouteSource(result.source);
             setTripRemainingKm(result.distanceKm);
           });
         }
@@ -1152,15 +1183,23 @@ export function BookingProvider({ children }: { children: ReactNode }) {
         const isTransitPhase = booking.status === 'in_transit';
         const hasRealDriverFix = booking.driver?.current_lat != null && booking.driver?.current_lng != null;
 
+        const serverPickupEta = parseServerPickupEta(booking.pickup_distance_km, booking.pickup_eta_mins);
+
         if (driverProfile) {
-          const distanceKm = Number(calculateDistance(
-            { name: '', lat: booking.driver.current_lat ?? pickup.lat, lng: booking.driver.current_lng ?? pickup.lng },
-            pickup
-          ).toFixed(1));
+          // Server road-route figure when sent (accepted rides) — identical to the driver app's.
+          const distanceKm = serverPickupEta
+            ? serverPickupEta.distanceKm
+            : Number(calculateDistance(
+                { name: '', lat: booking.driver.current_lat ?? pickup.lat, lng: booking.driver.current_lng ?? pickup.lng },
+                pickup
+              ).toFixed(1));
+          const etaMinutes = serverPickupEta
+            ? serverPickupEta.etaMinutes
+            : Math.max(1, Math.round((distanceKm / 20) * 60));
           setActiveDriver({
             ...driverProfile,
             distanceKm,
-            etaMinutes: Math.max(1, Math.round((distanceKm / 20) * 60)),
+            etaMinutes,
           });
 
           // Backend status is authoritative for the pickup phase, not the raw distance number —
@@ -1172,8 +1211,8 @@ export function BookingProvider({ children }: { children: ReactNode }) {
             setDriverDistanceKm(0);
             setDriverEtaMinutes(0);
           } else if (booking.status === 'accepted') {
-            setDriverDistanceKm(Math.max(0.1, distanceKm));
-            setDriverEtaMinutes(Math.max(1, Math.round((distanceKm / 20) * 60)));
+            setDriverDistanceKm(Math.max(0.0001, distanceKm)); // >0 = not "arrived"; still formats as the real meters
+            setDriverEtaMinutes(etaMinutes);
           }
         }
 
@@ -1184,7 +1223,8 @@ export function BookingProvider({ children }: { children: ReactNode }) {
             (booking.driver as any)?.heading_deg,
             booking.driver.last_location_updated_at || (booking.driver as any)?.recorded_at,
             'pickup',
-            booking.status === 'arrived'
+            booking.status === 'arrived',
+            serverPickupEta
           );
         } else if (!isPickupPhase) {
           // Leaving the pickup phase (in_transit/completed) — reset so a later new booking's
@@ -1322,7 +1362,8 @@ export function BookingProvider({ children }: { children: ReactNode }) {
         data.heading_deg,
         data.recorded_at,
         phaseState === 'in_transit' ? 'transit' : 'pickup',
-        phaseState === 'driver_en_route' && driverDistanceKmRef.current <= 0
+        phaseState === 'driver_en_route' && driverDistanceKmRef.current <= 0,
+        parseServerPickupEta(data.pickup_distance_km, data.pickup_eta_mins)
       );
     };
 

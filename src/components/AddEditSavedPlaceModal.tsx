@@ -157,6 +157,7 @@ export default function AddEditSavedPlaceModal({
           }}
           mode="destination"
           currentLocation={pickStartLocation}
+          showPinRoute={false}
           onSelect={(loc) => handlePickResult({ name: loc.name, address: loc.address || loc.name, lat: loc.lat, lng: loc.lng })}
         />
       </Modal>

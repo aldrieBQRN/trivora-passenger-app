@@ -16,6 +16,7 @@ interface PinLocationModalProps {
   initialLocation?: LocationPoint;
   mode?: 'pickup' | 'destination';
   confirmLabel?: string;
+  showRoute?: boolean;
 }
 
 function PinLocationModalContent({
@@ -26,9 +27,12 @@ function PinLocationModalContent({
   initialLocation,
   mode = 'destination',
   confirmLabel,
+  showRoute = true,
 }: PinLocationModalProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
+  // The second endpoint (pin + route). Without a route, currentPickup only centers the map.
+  const otherEndpoint = showRoute ? currentPickup : undefined;
   const [mapReady, setMapReady] = useState(false);
 
   const {
@@ -41,7 +45,7 @@ function PinLocationModalContent({
     isLocating,
     locationError,
     retryLocation,
-  } = usePinLocation(currentPickup, initialLocation, mode);
+  } = usePinLocation(otherEndpoint, initialLocation, mode);
 
   const isFallbackRoute = routeSource === 'fallback';
 
@@ -91,9 +95,9 @@ function PinLocationModalContent({
     const map = mapRef.current;
     if (!map || awaitingLocation) return;
 
-    if (currentPickup && pinnedLocation) {
+    if (otherEndpoint && pinnedLocation) {
       const points: { lat: number; lng: number }[] = [
-        { lat: currentPickup.lat, lng: currentPickup.lng },
+        { lat: otherEndpoint.lat, lng: otherEndpoint.lng },
         { lat: pinnedLocation.lat, lng: pinnedLocation.lng },
       ];
       if (routeCoordinates && routeCoordinates.length > 0) {
@@ -121,7 +125,7 @@ function PinLocationModalContent({
     } else if (currentPickup) {
       map.easeTo({ center: [currentPickup.lng, currentPickup.lat], zoom: 16, pitch: TOP_DOWN_PITCH, duration: 600 });
     }
-  }, [awaitingLocation, currentPickup, pinnedLocation, routeCoordinates]);
+  }, [awaitingLocation, currentPickup, otherEndpoint, pinnedLocation, routeCoordinates]);
 
   // Initialize MapLibre GL map
   useEffect(() => {
@@ -180,7 +184,7 @@ function PinLocationModalContent({
     const map = mapRef.current;
     if (!map) return;
 
-    if (currentPickup) {
+    if (otherEndpoint) {
       const isPickupMode = mode === 'pickup';
       const iconHtml = isPickupMode ? DROPOFF_ICON_HTML : PICKUP_ICON_HTML;
 
@@ -189,10 +193,10 @@ function PinLocationModalContent({
         el.className = 'trivora-marker-icon';
         el.innerHTML = iconHtml;
         otherMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'bottom' })
-          .setLngLat([currentPickup.lng, currentPickup.lat])
+          .setLngLat([otherEndpoint.lng, otherEndpoint.lat])
           .addTo(map);
       } else {
-        otherMarkerRef.current.setLngLat([currentPickup.lng, currentPickup.lat]);
+        otherMarkerRef.current.setLngLat([otherEndpoint.lng, otherEndpoint.lat]);
         const el = otherMarkerRef.current.getElement();
         if (el) el.innerHTML = iconHtml;
       }
@@ -200,7 +204,7 @@ function PinLocationModalContent({
       otherMarkerRef.current.remove();
       otherMarkerRef.current = null;
     }
-  }, [currentPickup?.lat, currentPickup?.lng, mode]);
+  }, [otherEndpoint?.lat, otherEndpoint?.lng, mode]);
 
   // Pinned location marker
   useEffect(() => {

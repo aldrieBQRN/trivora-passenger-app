@@ -342,7 +342,7 @@ export default function AuthScreen({ onAuthenticated, onForgotPassword }: AuthSc
             <Mail size={18} color={COLORS.textSecondary} />
             <TextInput
               style={styles.fieldInput}
-              placeholder="Email address"
+              placeholder="e.g. juan@example.com"
               placeholderTextColor={COLORS.textMuted}
               value={email}
               onChangeText={(text) => {
@@ -362,7 +362,7 @@ export default function AuthScreen({ onAuthenticated, onForgotPassword }: AuthSc
             <Lock size={18} color={COLORS.textSecondary} />
             <TextInput
               style={styles.fieldInput}
-              placeholder="Password"
+              placeholder="Enter your password"
               placeholderTextColor={COLORS.textMuted}
               value={password}
               onChangeText={(text) => {
@@ -534,8 +534,8 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.sm,
   },
   brandLogo: {
-    width: 136,
-    height: 136,
+    width: 180,
+    height: 180,
     marginBottom: 4,
   },
   appBadge: {

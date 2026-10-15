@@ -28,6 +28,9 @@ export interface DriverLocationEventPayload {
   longitude: number;
   heading_deg: number | null;
   recorded_at: string;
+  /** Server road-route distance/ETA to pick-up (Booking::pickupEta) — null unless 'accepted'. */
+  pickup_distance_km?: number | null;
+  pickup_eta_mins?: number | null;
 }
 
 let echoInstance: Echo<'reverb'> | null = null;

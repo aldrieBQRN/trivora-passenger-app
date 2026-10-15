@@ -10,9 +10,10 @@ import {
   Platform,
   Alert,
 } from 'react-native';
-import { COLORS, RADIUS, SPACING, BUTTONS, TYPOGRAPHY } from '../constants/theme';
+import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '../constants/theme';
 import { ArrowLeft, Mail, Lock, Eye, EyeOff, KeyRound } from 'lucide-react-native';
 import { passengerApi } from '../services/api';
+import FloatingIconButton from '../components/FloatingIconButton';
 import Button from '../components/Button';
 
 interface ForgotPasswordScreenProps {
@@ -138,94 +139,89 @@ export default function ForgotPasswordScreen({ initialEmail = '', onBack }: Forg
   };
 
   return (
-    <View style={styles.safeArea}>
-      <KeyboardAvoidingView
-        style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          <TouchableOpacity style={styles.backButton} onPress={goBack} disabled={loading} activeOpacity={0.7}>
-            <ArrowLeft size={18} color={COLORS.textPrimary} />
-            <Text style={styles.backText}>{step === 'email' ? 'Back to Log In' : 'Back'}</Text>
-          </TouchableOpacity>
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+        <FloatingIconButton onPress={goBack} size={36} accessibilityLabel="Back" style={styles.backButton}>
+          <ArrowLeft size={20} color={COLORS.textPrimary} />
+        </FloatingIconButton>
 
-          <View style={styles.iconCircle}>
-            <KeyRound size={26} color={COLORS.primary} />
+        <View style={styles.iconCircle}>
+          <KeyRound size={26} color={COLORS.primary} />
+        </View>
+        <Text style={styles.title}>{titles[step].title}</Text>
+        <Text style={styles.subtitle}>{titles[step].subtitle}</Text>
+
+        {error && (
+          <View style={styles.formErrorBox}>
+            <Text style={styles.formErrorText}>{error}</Text>
           </View>
-          <Text style={styles.title}>{titles[step].title}</Text>
-          <Text style={styles.subtitle}>{titles[step].subtitle}</Text>
+        )}
+        {info && (
+          <View style={styles.infoBox}>
+            <Text style={styles.infoText}>{info}</Text>
+          </View>
+        )}
 
-          {info ? (
-            <View style={styles.infoBox}>
-              <Text style={styles.infoText}>{info}</Text>
+        {step === 'email' && (
+          <View style={styles.field}>
+            <Text style={styles.fieldLabel}>Email Address</Text>
+            <View style={styles.fieldBox}>
+              <Mail size={18} color={COLORS.primary} />
+              <TextInput
+                style={styles.fieldInput}
+                placeholder="you@example.com"
+                placeholderTextColor={COLORS.textMuted}
+                value={email}
+                onChangeText={(v) => {
+                  setEmail(v);
+                  if (error) setError(null);
+                }}
+                keyboardType="email-address"
+                autoCapitalize="none"
+              />
             </View>
-          ) : null}
+          </View>
+        )}
 
-          {step === 'email' && (
-            <>
-              <Text style={styles.fieldLabel}>Email Address</Text>
-              <View style={[styles.fieldBox, error && styles.fieldBoxError]}>
-                <Mail size={18} color={COLORS.textSecondary} />
-                <TextInput
-                  style={styles.fieldInput}
-                  placeholder="Email address"
-                  placeholderTextColor={COLORS.textMuted}
-                  value={email}
-                  onChangeText={(text) => {
-                    setEmail(text);
-                    if (error) setError(null);
-                  }}
-                  autoCapitalize="none"
-                  keyboardType="email-address"
-                  editable={!loading}
-                />
-              </View>
-            </>
-          )}
+        {step === 'code' && (
+          <View style={styles.field}>
+            <Text style={styles.fieldLabel}>6-digit code</Text>
+            <View style={styles.fieldBox}>
+              <KeyRound size={18} color={COLORS.primary} />
+              <TextInput
+                style={styles.fieldInput}
+                placeholder="123456"
+                placeholderTextColor={COLORS.textMuted}
+                value={code}
+                onChangeText={(v) => {
+                  setCode(v.replace(/\D/g, '').slice(0, 6));
+                  if (error) setError(null);
+                }}
+                keyboardType="number-pad"
+                textContentType="oneTimeCode"
+                autoComplete="one-time-code"
+                maxLength={6}
+              />
+            </View>
+          </View>
+        )}
 
-          {step === 'code' && (
-            <>
-              <Text style={styles.fieldLabel}>6-digit code</Text>
-              <View style={[styles.fieldBox, error && styles.fieldBoxError]}>
-                <TextInput
-                  style={[styles.fieldInput, styles.codeInput]}
-                  placeholder="••••••"
-                  placeholderTextColor={COLORS.textMuted}
-                  value={code}
-                  onChangeText={(text) => {
-                    setCode(text.replace(/\D/g, '').slice(0, 6));
-                    if (error) setError(null);
-                  }}
-                  keyboardType="number-pad"
-                  textContentType="oneTimeCode"
-                  autoComplete="one-time-code"
-                  maxLength={6}
-                  editable={!loading}
-                />
-              </View>
-            </>
-          )}
-
-          {step === 'password' && (
-            <>
+        {step === 'password' && (
+          <>
+            <View style={styles.field}>
               <Text style={styles.fieldLabel}>New Password</Text>
-              <View style={[styles.fieldBox, error && styles.fieldBoxError]}>
-                <Lock size={18} color={COLORS.textSecondary} />
+              <View style={styles.fieldBox}>
+                <Lock size={18} color={COLORS.primary} />
                 <TextInput
                   style={styles.fieldInput}
-                  placeholder="New password"
+                  placeholder="At least 8 characters"
                   placeholderTextColor={COLORS.textMuted}
                   value={password}
-                  onChangeText={(text) => {
-                    setPassword(text);
+                  onChangeText={(v) => {
+                    setPassword(v);
                     if (error) setError(null);
                   }}
                   secureTextEntry={!showPassword}
-                  editable={!loading}
                 />
                 <TouchableOpacity onPress={() => setShowPassword((v) => !v)} activeOpacity={0.7}>
                   {showPassword ? (
@@ -235,78 +231,65 @@ export default function ForgotPasswordScreen({ initialEmail = '', onBack }: Forg
                   )}
                 </TouchableOpacity>
               </View>
-
+            </View>
+            <View style={styles.field}>
               <Text style={styles.fieldLabel}>Confirm New Password</Text>
-              <View style={[styles.fieldBox, error && styles.fieldBoxError]}>
-                <Lock size={18} color={COLORS.textSecondary} />
+              <View style={styles.fieldBox}>
+                <Lock size={18} color={COLORS.primary} />
                 <TextInput
                   style={styles.fieldInput}
-                  placeholder="Confirm new password"
+                  placeholder="Re-enter your new password"
                   placeholderTextColor={COLORS.textMuted}
                   value={confirmPassword}
-                  onChangeText={(text) => {
-                    setConfirmPassword(text);
+                  onChangeText={(v) => {
+                    setConfirmPassword(v);
                     if (error) setError(null);
                   }}
                   secureTextEntry={!showPassword}
-                  editable={!loading}
                 />
               </View>
-            </>
-          )}
-
-          {error ? <Text style={styles.errorText}>{error}</Text> : null}
-
-          <View style={styles.ctaSpacing}>
-            {step === 'email' && <Button label="Send Code" onPress={() => sendCode()} loading={loading} />}
-            {step === 'code' && <Button label="Verify Code" onPress={verifyCode} loading={loading} />}
-            {step === 'password' && <Button label="Reset Password" onPress={resetPassword} loading={loading} />}
-          </View>
-
-          {step === 'code' && (
-            <View style={styles.footerRow}>
-              <Text style={styles.footerText}>Didn't get the code? </Text>
-              {resendIn > 0 ? (
-                <Text style={styles.footerText}>Resend in {resendIn}s</Text>
-              ) : (
-                <TouchableOpacity onPress={() => sendCode(true)} disabled={loading}>
-                  <Text style={styles.linkText}>Resend code</Text>
-                </TouchableOpacity>
-              )}
             </View>
-          )}
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </View>
+          </>
+        )}
+
+        {step === 'email' && (
+          <Button label="Send Code" onPress={() => sendCode()} loading={loading} style={styles.submitBtn} />
+        )}
+        {step === 'code' && (
+          <Button label="Verify Code" onPress={verifyCode} loading={loading} style={styles.submitBtn} />
+        )}
+        {step === 'password' && (
+          <Button label="Reset Password" onPress={resetPassword} loading={loading} style={styles.submitBtn} />
+        )}
+
+        {step === 'code' && (
+          <View style={styles.footerRow}>
+            <Text style={styles.footerText}>Didn't get the code? </Text>
+            {resendIn > 0 ? (
+              <Text style={styles.footerText}>Resend in {resendIn}s</Text>
+            ) : (
+              <TouchableOpacity onPress={() => sendCode(true)} disabled={loading} activeOpacity={0.7}>
+                <Text style={styles.linkText}>Resend code</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
+  container: {
     flex: 1,
     backgroundColor: COLORS.background,
   },
-  container: {
-    flex: 1,
-  },
   scrollContent: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.lg,
+    padding: SPACING.lg,
+    paddingBottom: SPACING.xl,
   },
   backButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    alignSelf: 'flex-start',
-    paddingVertical: SPACING.sm,
     marginBottom: SPACING.md,
-  },
-  backText: {
-    ...TYPOGRAPHY.body,
-    color: COLORS.textPrimary,
-    fontWeight: '600',
   },
   iconCircle: {
     width: 56,
@@ -318,73 +301,74 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.md,
   },
   title: {
-    ...TYPOGRAPHY.h1,
+    ...TYPOGRAPHY.h2,
     color: COLORS.textPrimary,
-    marginBottom: 4,
   },
   subtitle: {
     ...TYPOGRAPHY.body,
     color: COLORS.textSecondary,
+    marginTop: 4,
     marginBottom: SPACING.md,
+  },
+  formErrorBox: {
+    backgroundColor: COLORS.dangerLight,
+    borderWidth: 1,
+    borderColor: COLORS.dangerBorder,
+    borderRadius: RADIUS.md,
+    padding: SPACING.sm + 2,
+    marginBottom: SPACING.sm,
+  },
+  formErrorText: {
+    ...TYPOGRAPHY.bodySmall,
+    color: COLORS.dangerDark,
+    fontWeight: '700',
   },
   infoBox: {
     backgroundColor: COLORS.successLight,
-    borderColor: COLORS.successBorder,
     borderWidth: 1,
+    borderColor: COLORS.successBorder,
     borderRadius: RADIUS.md,
-    padding: SPACING.sm,
+    padding: SPACING.sm + 2,
     marginBottom: SPACING.sm,
   },
   infoText: {
-    ...TYPOGRAPHY.caption,
-    color: COLORS.emerald,
+    ...TYPOGRAPHY.bodySmall,
+    color: COLORS.textPrimary,
+    fontWeight: '600',
+  },
+  field: {
+    marginTop: SPACING.sm,
   },
   fieldLabel: {
     ...TYPOGRAPHY.caption,
     color: COLORS.textSecondary,
-    marginTop: SPACING.sm,
     marginBottom: 6,
   },
   fieldBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
     backgroundColor: COLORS.surfaceInput,
     borderRadius: RADIUS.md,
+    paddingHorizontal: SPACING.md,
+    height: 50,
+    gap: 10,
     borderWidth: 1,
     borderColor: COLORS.border,
-    height: BUTTONS.touchHeight,
-    paddingHorizontal: 14,
-    marginBottom: 6,
-  },
-  fieldBoxError: {
-    borderColor: COLORS.dangerBorder,
-    backgroundColor: COLORS.dangerLight,
   },
   fieldInput: {
     flex: 1,
-    ...TYPOGRAPHY.body,
+    fontSize: 14,
     color: COLORS.textPrimary,
+    fontWeight: '700',
   },
-  codeInput: {
-    ...TYPOGRAPHY.h2,
-    textAlign: 'center',
-    letterSpacing: 8,
-  },
-  errorText: {
-    ...TYPOGRAPHY.caption,
-    color: COLORS.dangerDark,
-    marginBottom: SPACING.sm,
-    marginLeft: 2,
-  },
-  ctaSpacing: {
+  submitBtn: {
     marginTop: SPACING.sm,
   },
   footerRow: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: SPACING.lg,
+    marginTop: SPACING.md,
   },
   footerText: {
     ...TYPOGRAPHY.caption,

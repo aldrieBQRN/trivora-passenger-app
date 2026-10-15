@@ -19,6 +19,7 @@ interface PinLocationModalProps {
   initialLocation?: LocationPoint;
   mode?: 'pickup' | 'destination';
   confirmLabel?: string;
+  showRoute?: boolean;
 }
 
 function PinLocationModalContent({
@@ -29,9 +30,12 @@ function PinLocationModalContent({
   initialLocation,
   mode = 'destination',
   confirmLabel,
+  showRoute = true,
 }: PinLocationModalProps) {
   const cameraRef = useRef<CameraRef | null>(null);
   const pinZoom = deltaToZoom(PIN_ZOOM_DELTA);
+  // The second endpoint (pin + route). Without a route, currentPickup only centers the map.
+  const otherEndpoint = showRoute ? currentPickup : undefined;
   const {
     pinnedLocation,
     routeCoordinates,
@@ -43,7 +47,7 @@ function PinLocationModalContent({
     locationError,
     retryLocation,
   } = usePinLocation(
-    currentPickup,
+    otherEndpoint,
     initialLocation,
     mode
   );
@@ -82,9 +86,9 @@ function PinLocationModalContent({
 
   const handleRecenter = () => {
     if (awaitingLocation) return;
-    if (currentPickup && pinnedLocation) {
+    if (otherEndpoint && pinnedLocation) {
       const points: { lat: number; lng: number }[] = [
-        { lat: currentPickup.lat, lng: currentPickup.lng },
+        { lat: otherEndpoint.lat, lng: otherEndpoint.lng },
         { lat: pinnedLocation.lat, lng: pinnedLocation.lng },
       ];
       if (routeCoordinates && routeCoordinates.length > 0) {
@@ -151,8 +155,8 @@ function PinLocationModalContent({
             currentPickup is really "the other, unchanged endpoint": in pickup mode that's the
             destination (red), in destination mode the pickup (green); the pin being dropped is
             colored by what it's ABOUT TO BECOME. */}
-        {currentPickup ? (
-          <Marker id="other-endpoint-pin" lngLat={[currentPickup.lng, currentPickup.lat]} anchor="bottom">
+        {otherEndpoint ? (
+          <Marker id="other-endpoint-pin" lngLat={[otherEndpoint.lng, otherEndpoint.lat]} anchor="bottom">
             <Image source={mode === 'pickup' ? DESTINATION_PIN_IMAGE : PICKUP_PIN_IMAGE} style={PIN_SIZE} />
           </Marker>
         ) : null}

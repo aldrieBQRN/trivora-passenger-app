@@ -12,6 +12,9 @@ export interface PinLocationModalProps {
   mode?: 'pickup' | 'destination';
   /** Overrides the confirm button's label entirely (e.g. "Save Place"). */
   confirmLabel?: string;
+  /** false = just drop a pin (e.g. adding a saved place): currentPickup only centers the map, with
+   * no second endpoint pin and no route. Defaults to true. */
+  showRoute?: boolean;
 }
 
 export default function PinLocationModal(props: PinLocationModalProps) {

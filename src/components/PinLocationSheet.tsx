@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Modal, TouchableOpacity, LayoutChangeEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { X, MapPin, Hand, Crosshair } from 'lucide-react-native';
+import { X, MapPin, Hand } from 'lucide-react-native';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '../constants/theme';
 import { LocationPoint } from '../types';
 import Button from './Button';
+import MapFocusButton from './MapFocusButton';
 
 interface PinLocationSheetProps {
   pinnedLocation: LocationPoint | null;
@@ -84,15 +85,11 @@ export default function PinLocationSheet({
         </View>
 
         {/* Floating focus button placed right above bottom panel */}
-        <TouchableOpacity
-          style={[styles.floatingFocusBtn, { bottom: panelHeight + 16 }]}
+        <MapFocusButton
+          style={{ bottom: panelHeight + 16 }}
           onPress={onRecenter}
-          activeOpacity={0.8}
-          accessibilityRole="button"
           accessibilityLabel="Focus pick-up and destination"
-        >
-          <Crosshair size={20} color={COLORS.primary} />
-        </TouchableOpacity>
+          />
 
         {/* Floating bottom sheet panel */}
         <View
@@ -183,20 +180,6 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.surfaceInput,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  floatingFocusBtn: {
-    position: 'absolute',
-    right: 16,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    ...SHADOWS.md,
-    zIndex: 10,
   },
   panel: {
     position: 'absolute',
