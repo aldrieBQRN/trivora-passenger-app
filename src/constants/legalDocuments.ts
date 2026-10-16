@@ -1,6 +1,6 @@
 /** Terms & Conditions and Privacy Policy content shown in LegalDocumentModal. */
 
-export const LEGAL_LAST_UPDATED = 'Last updated: September 2026';
+export const LEGAL_LAST_UPDATED = 'Last updated: October 2026';
 export const TERMS_VERSION = '2026.09';
 
 export const TERMS_SECTIONS = [
@@ -25,8 +25,8 @@ export const TERMS_SECTIONS = [
     body: 'Both drivers and passengers are expected to behave courteously and safely. Reports of misconduct, unsafe driving, or unsafe passenger behavior are reviewed and may be forwarded to the Municipal Traffic Office (TMO) or Nasugbu BPLO where appropriate.',
   },
   {
-    heading: '6. Safety and Emergency Features',
-    body: 'The app includes an in-ride SOS/emergency feature for use during a genuine safety concern. Emergency reports are taken seriously; deliberate misuse of this feature is a violation of these Terms and may result in account action.',
+    heading: '6. Safety',
+    body: 'Rides are tracked live from pick-up to destination, and passengers can call or message their driver from the app. The app does not provide an emergency or SOS service; in an emergency, contact local emergency services (911) directly.',
   },
   {
     heading: '7. Account Suspension and Termination',

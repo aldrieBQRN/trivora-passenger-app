@@ -43,7 +43,7 @@ const SLIDES = [
     key: 'journey',
     image: require('../../assets/onboarding/onboarding-3-the-journey.webp'),
     title: 'Ride Safely, Arrive Easily',
-    description: 'Live ride sharing and one-tap SOS keep every ride safe from pick-up to destination.',
+    description: 'Live ride tracking and verified drivers keep every ride safe from pick-up to destination.',
   },
 ];
 
