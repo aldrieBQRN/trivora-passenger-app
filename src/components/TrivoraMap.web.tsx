@@ -19,10 +19,9 @@ import {
   boundsOf,
 } from '../constants/openFreeMap';
 
-const tricycleUri: string =
-  typeof TRICYCLE_MARKER_IMAGE === 'string'
-    ? TRICYCLE_MARKER_IMAGE
-    : (TRICYCLE_MARKER_IMAGE as any)?.default || (TRICYCLE_MARKER_IMAGE as any)?.uri || String(TRICYCLE_MARKER_IMAGE);
+import { resolveMarkerUri } from '../constants/tricycleMarkerUri';
+
+const tricycleUri: string = resolveMarkerUri(TRICYCLE_MARKER_IMAGE);
 
 const REFRAME_THRESHOLD_KM = 0.12;
 const FOLLOW_MIN_MOVE_KM = 0.003;
@@ -81,9 +80,10 @@ export function todaIconHtml(): string {
 }
 
 export function driverIconHtml(heading: number, uri: string): string {
+  const safeUri = resolveMarkerUri(uri);
   return `
     <div style="width:45px;height:30px;display:flex;align-items:center;justify-content:center;filter:drop-shadow(0 2px 5px rgba(0,0,0,0.35));transform:rotate(${heading}deg);">
-      <img src="${uri}" alt="Tricycle" style="width:45px;height:30px;object-fit:contain;pointer-events:none;" />
+      <img src="${safeUri}" alt="Tricycle" style="width:45px;height:30px;object-fit:contain;pointer-events:none;" />
     </div>
   `;
 }

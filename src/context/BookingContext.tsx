@@ -715,6 +715,24 @@ export function BookingProvider({ children }: { children: ReactNode }) {
     refreshRoute(oldDropoff, oldPickup, zone);
   };
 
+  // A new trip always starts from where the passenger actually is: once back on Home, a manual
+  // pickup from the previous pass (e.g. after Swap) is dropped for the last real GPS fix, so the
+  // next destination pick doesn't silently reuse it. Synchronous on purpose — no GPS round-trip
+  // the passenger could race by picking a destination right away.
+  useEffect(() => {
+    if (screenState !== 'home' || pickupMode !== 'manual' || currentLat == null || currentLng == null) return;
+    const here = { lat: currentLat, lng: currentLng };
+    setPickup({
+      name: currentLocationLabel ?? 'Locating your position…',
+      address: currentLocationLabel ?? 'Resolving address...',
+      ...here,
+      zoneCode: findNearestZone(here, todaList).code,
+      category: 'Current',
+    });
+    setPickupMode('current_location');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screenState]);
+
   const toggleCompliment = (tag: string) => {
     setSelectedCompliments((prev) =>
       prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
@@ -733,9 +751,8 @@ export function BookingProvider({ children }: { children: ReactNode }) {
     // completing a booking), so the destination screen opens with a real empty/unselected state
     // rather than silently reusing a stale one.
     setHasDestination(false);
-    // Refresh pickup to a real GPS fix the moment booking starts — only while still in
-    // current_location mode, so this never overwrites a pickup the passenger already
-    // manually chose in an earlier pass through this flow.
+    // Refresh pickup to a real GPS fix the moment booking starts. A manual pickup from an earlier
+    // pass is already reset on returning Home (see the screenState effect above).
     if (pickupMode === 'current_location') {
       useCurrentLocationForPickup();
     }
