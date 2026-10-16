@@ -59,6 +59,7 @@ interface FormErrors {
   password?: string;
   confirmPassword?: string;
   terms?: string;
+  form?: string;
 }
 
 export default function AuthScreen({ onAuthenticated, onForgotPassword }: AuthScreenProps) {
@@ -235,7 +236,7 @@ export default function AuthScreen({ onAuthenticated, onForgotPassword }: AuthSc
       } catch (err: any) {
         setLoading(false);
         if (err?.status !== undefined) {
-          setErrors({ password: err.message || 'Incorrect email or password. Please try again.' });
+          setErrors({ form: err.message || 'Incorrect email or password. Please try again.' });
           return;
         }
         Alert.alert(
@@ -288,12 +289,18 @@ export default function AuthScreen({ onAuthenticated, onForgotPassword }: AuthSc
             </Text>
           </View>
 
+          {errors.form && (
+            <View style={styles.formErrorBox}>
+              <Text style={styles.formErrorText}>{errors.form}</Text>
+            </View>
+          )}
+
           {/* Full Name — register only */}
           {isRegister && (
             <>
               <Text style={styles.fieldLabel}>Full Name</Text>
               <View style={[styles.fieldBox, errors.name && styles.fieldBoxError]}>
-                <User size={18} color={COLORS.textSecondary} />
+                <User size={18} color={errors.name ? COLORS.danger : COLORS.primary} />
                 <TextInput
                   style={styles.fieldInput}
                   placeholder="Full name"
@@ -339,7 +346,7 @@ export default function AuthScreen({ onAuthenticated, onForgotPassword }: AuthSc
           {/* Email */}
           <Text style={styles.fieldLabel}>Email Address</Text>
           <View style={[styles.fieldBox, errors.email && styles.fieldBoxError]}>
-            <Mail size={18} color={COLORS.textSecondary} />
+            <Mail size={18} color={errors.email ? COLORS.danger : COLORS.primary} />
             <TextInput
               style={styles.fieldInput}
               placeholder="e.g. juan@example.com"
@@ -347,7 +354,7 @@ export default function AuthScreen({ onAuthenticated, onForgotPassword }: AuthSc
               value={email}
               onChangeText={(text) => {
                 setEmail(text);
-                if (errors.email) setErrors((prev) => ({ ...prev, email: undefined }));
+                if (errors.email || errors.form) setErrors((prev) => ({ ...prev, email: undefined, form: undefined }));
               }}
               autoCapitalize="none"
               keyboardType="email-address"
@@ -359,7 +366,7 @@ export default function AuthScreen({ onAuthenticated, onForgotPassword }: AuthSc
           {/* Password */}
           <Text style={styles.fieldLabel}>Password</Text>
           <View style={[styles.fieldBox, errors.password && styles.fieldBoxError]}>
-            <Lock size={18} color={COLORS.textSecondary} />
+            <Lock size={18} color={errors.password ? COLORS.danger : COLORS.primary} />
             <TextInput
               style={styles.fieldInput}
               placeholder="Enter your password"
@@ -367,7 +374,7 @@ export default function AuthScreen({ onAuthenticated, onForgotPassword }: AuthSc
               value={password}
               onChangeText={(text) => {
                 setPassword(text);
-                if (errors.password) setErrors((prev) => ({ ...prev, password: undefined }));
+                if (errors.password || errors.form) setErrors((prev) => ({ ...prev, password: undefined, form: undefined }));
               }}
               secureTextEntry={!showPassword}
               editable={!loading}
@@ -387,7 +394,7 @@ export default function AuthScreen({ onAuthenticated, onForgotPassword }: AuthSc
             <>
               <Text style={styles.fieldLabel}>Confirm Password</Text>
               <View style={[styles.fieldBox, errors.confirmPassword && styles.fieldBoxError]}>
-                <Lock size={18} color={COLORS.textSecondary} />
+                <Lock size={18} color={errors.confirmPassword ? COLORS.danger : COLORS.primary} />
                 <TextInput
                   style={styles.fieldInput}
                   placeholder="Confirm password"
@@ -580,19 +587,34 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   fieldBoxError: {
-    borderColor: COLORS.dangerBorder,
+    borderColor: COLORS.danger,
     backgroundColor: COLORS.dangerLight,
   },
+  // Typed text is bold, matching the Driver app's FormField input.
   fieldInput: {
     flex: 1,
-    ...TYPOGRAPHY.body,
+    fontSize: 14,
+    fontWeight: '700',
     color: COLORS.textPrimary,
   },
   errorText: {
     ...TYPOGRAPHY.caption,
-    color: COLORS.dangerDark,
+    color: COLORS.danger,
     marginBottom: SPACING.sm,
     marginLeft: 2,
+  },
+  formErrorBox: {
+    backgroundColor: COLORS.dangerLight,
+    borderWidth: 1,
+    borderColor: COLORS.dangerBorder,
+    borderRadius: RADIUS.md,
+    padding: SPACING.sm + 2,
+    marginTop: SPACING.sm,
+  },
+  formErrorText: {
+    ...TYPOGRAPHY.bodySmall,
+    color: COLORS.dangerDark,
+    fontWeight: '700',
   },
   phoneInputContainer: {
     flexDirection: 'row',
@@ -627,7 +649,8 @@ const styles = StyleSheet.create({
   },
   numberInput: {
     flex: 1,
-    ...TYPOGRAPHY.body,
+    fontSize: 14,
+    fontWeight: '700',
     color: COLORS.textPrimary,
   },
   optionsRow: {

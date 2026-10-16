@@ -12,9 +12,9 @@ import {
 } from 'react-native';
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '../constants/theme';
 import { calculateDistance } from '../constants/todaRoutes';
-import { searchPlaces, PlaceSearchResult } from '../services/routingService';
+import { searchPlaces, resolvePlaceCoordinates, PlaceSearchResult } from '../services/routingService';
 import { useSavedPlaces } from '../context/SavedPlacesContext';
-import { LocationPoint } from '../types';
+import { LocationPoint, NearbyPlace } from '../types';
 import {
   Search,
   MapPin,
@@ -142,6 +142,32 @@ export default function DestinationSearchScreen({
 
   const handleSelectSearchResult = (result: PlaceSearchResult) => {
     onSelect({ name: result.name, address: result.address, lat: result.lat, lng: result.lng, category: 'Search' });
+    onBack();
+  };
+
+  // Suggested places from the backend's offline fallback list (ids `fallback/...`, served when
+  // OpenStreetMap's Overpass API is down) only have approximate coordinates, so look up the exact
+  // point the same way Search does before routing. Real OSM places are already exact.
+  const [resolvingPlaceId, setResolvingPlaceId] = useState<string | null>(null);
+  const handleSelectSuggestedPlace = async (item: NearbyPlace, categoryLabel: string) => {
+    if (resolvingPlaceId) return;
+    let { latitude: lat, longitude: lng } = item;
+    if (String(item.id).startsWith('fallback/')) {
+      setResolvingPlaceId(item.id);
+      const exact = await resolvePlaceCoordinates(item.name, { lat, lng });
+      setResolvingPlaceId(null);
+      if (exact) {
+        lat = exact.lat;
+        lng = exact.lng;
+      }
+    }
+    onSelect({
+      name: item.name,
+      address: item.address || 'Nasugbu, Batangas',
+      lat,
+      lng,
+      category: categoryLabel,
+    });
     onBack();
   };
 
@@ -376,16 +402,8 @@ export default function DestinationSearchScreen({
                 return (
                   <TouchableOpacity
                     style={styles.placeItem}
-                    onPress={() => {
-                      onSelect({
-                        name: item.name,
-                        address: item.address || 'Nasugbu, Batangas',
-                        lat: item.latitude,
-                        lng: item.longitude,
-                        category: catDef.label,
-                      });
-                      onBack();
-                    }}
+                    onPress={() => handleSelectSuggestedPlace(item, catDef.label)}
+                    disabled={resolvingPlaceId !== null}
                     activeOpacity={0.7}
                   >
                     <View style={[styles.placeIconBox, { backgroundColor: catDef.tintColor || COLORS.primaryTint }]}>
@@ -399,7 +417,9 @@ export default function DestinationSearchScreen({
                       </Text>
                     </View>
 
-                    {distKm != null && (
+                    {resolvingPlaceId === item.id ? (
+                      <ActivityIndicator size="small" color={COLORS.primary} />
+                    ) : distKm != null && (
                       <View style={styles.placeMetaCol}>
                         <Text style={styles.placeDistance}>{distKm} km</Text>
                       </View>

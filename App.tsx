@@ -185,12 +185,12 @@ function PassengerAppNavigator() {
       return <QrRideSetupScreen />;
     }
     if (qrStage === 'ride') {
-      return <QrRideScreen topInset={safeTop} />;
+      return <QrRideScreen topInset={safeTop} bottomInset={safeBottom} />;
     }
 
     // Active Booking Flow Screens (Screens 4 to 10)
     if (screenState === 'destination_select') {
-      return <DestinationRouteScreen topInset={safeTop} />;
+      return <DestinationRouteScreen topInset={safeTop} bottomInset={safeBottom} />;
     }
 
     if (screenState === 'confirm_fare') {
@@ -202,11 +202,11 @@ function PassengerAppNavigator() {
     }
 
     if (screenState === 'driver_en_route') {
-      return <DriverEnRouteScreen topInset={safeTop} />;
+      return <DriverEnRouteScreen topInset={safeTop} bottomInset={safeBottom} />;
     }
 
     if (screenState === 'in_transit') {
-      return <ActiveRideScreen topInset={safeTop} />;
+      return <ActiveRideScreen topInset={safeTop} bottomInset={safeBottom} />;
     }
 
     if (screenState === 'trip_completed') {
@@ -291,7 +291,8 @@ function PassengerAppNavigator() {
         <View
           style={[
             styles.screenViewport,
-            !isTabVisible && !isSplashOrOnboarding && { paddingBottom: safeBottom },
+            // Full-bleed map screens run to the bottom edge like Home and pad their own sheet instead.
+            !isTabVisible && !isSplashOrOnboarding && !isFullBleedMapScreen && { paddingBottom: safeBottom },
           ]}
         >
           {renderCurrentScreen()}

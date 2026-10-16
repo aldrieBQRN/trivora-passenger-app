@@ -14,11 +14,13 @@ import { formatPickupDistance } from '../utils/distance';
 
 interface DriverEnRouteScreenProps {
   topInset?: number;
+  /** Bottom safe-area inset — the sheet pads itself so it runs to the screen edge (full-bleed, like Home). */
+  bottomInset?: number;
 }
 
 const FOUND_REVEAL_MS = 1700;
 
-export default function DriverEnRouteScreen({ topInset = 0 }: DriverEnRouteScreenProps) {
+export default function DriverEnRouteScreen({ topInset = 0, bottomInset = 0 }: DriverEnRouteScreenProps) {
   const {
     cancelBooking,
     activeDriver,
@@ -146,7 +148,7 @@ export default function DriverEnRouteScreen({ topInset = 0 }: DriverEnRouteScree
       </View>
 
       {/* Driver & Ride Panel */}
-      <View style={styles.sheet} onLayout={handleSheetLayout}>
+      <View style={[styles.sheet, { paddingBottom: SPACING.lg + bottomInset }]} onLayout={handleSheetLayout}>
         <View style={styles.driverRow}>
           <Avatar name={activeDriver.name} imageUri={activeDriver.avatarUrl} tone="driver" size={48} />
 

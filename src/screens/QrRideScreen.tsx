@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, LayoutChangeEvent, BackHandler, TouchableOpacity } from 'react-native';
-import { MapPin, SignalLow, CheckCircle2, XCircle, ChevronDown, Star, Home } from 'lucide-react-native';
+import { View, Text, StyleSheet, LayoutChangeEvent, BackHandler } from 'react-native';
+import { MapPin, SignalLow, CheckCircle2, XCircle, ChevronDown } from 'lucide-react-native';
 import { useBooking } from '../context/BookingContext';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '../constants/theme';
 import { useQrRide } from '../context/QrRideContext';
@@ -12,10 +12,13 @@ import { fetchRoute, RouteCoordinate, RouteSource } from '../services/routingSer
 import { describeTricycle, formatPeso } from '../utils/qrRide';
 import TricycleIcon from '../components/icons/TricycleIcon';
 import FloatingIconButton from '../components/FloatingIconButton';
+import PaymentSuccessView from '../components/PaymentSuccessView';
 import { QrActiveRide } from '../types';
 
 interface QrRideScreenProps {
   topInset?: number;
+  /** Bottom safe-area inset — the sheet pads itself so it runs to the screen edge (full-bleed, like Home). */
+  bottomInset?: number;
 }
 
 /** Re-route (display only) once the tricycle has moved this far from the last route origin. */
@@ -35,6 +38,15 @@ function secondsAgo(iso: string | null): number | null {
   return Number.isFinite(t) ? Math.max(0, Math.round((Date.now() - t) / 1000)) : null;
 }
 
+/** "Oct 16, 2026 · 3:45 PM" for the paid card, like a booked ride's receipt date · time. */
+function formatPaidAt(iso: string | null | undefined): string {
+  const d = iso ? new Date(iso) : null;
+  if (!d || !Number.isFinite(d.getTime())) return 'Paid to your driver';
+  const date = d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
+  const time = d.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' });
+  return `${date} · ${time}`;
+}
+
 function agoLabel(seconds: number | null): string {
   if (seconds == null) return 'no signal yet';
   if (seconds < 60) return `${seconds}s ago`;
@@ -52,12 +64,12 @@ function agoLabel(seconds: number | null): string {
  * cash and confirms — nothing is shown or entered here). When the backend reports paid, the same
  * screen shows the paid state and only then offers Rate Driver and Home.
  */
-export default function QrRideScreen({ topInset = 0 }: QrRideScreenProps) {
+export default function QrRideScreen({ topInset = 0, bottomInset = 0 }: QrRideScreenProps) {
   const { ride } = useQrRide();
-  return ride ? <QrRideView ride={ride} topInset={topInset} /> : null;
+  return ride ? <QrRideView ride={ride} topInset={topInset} bottomInset={bottomInset} /> : null;
 }
 
-function QrRideView({ ride, topInset }: { ride: QrActiveRide; topInset: number }) {
+function QrRideView({ ride, topInset, bottomInset }: { ride: QrActiveRide; topInset: number; bottomInset: number }) {
   const { leaveRide, isLeaving, finishRide, minimizeRide } = useQrRide();
   const { startRatingBooking } = useBooking();
   const { showToast } = useToast();
@@ -155,6 +167,29 @@ function QrRideView({ ride, topInset }: { ride: QrActiveRide; topInset: number }
     if (ok) showToast('You left the ride.', 'info');
   };
 
+  // Paid: the same full "Payment Successful" page a booked ride ends on (TripCompletedScreen).
+  if (isPaid) {
+    const driverName = ride.driver?.first_name;
+    return (
+      <PaymentSuccessView
+        destinationName={booking.dropoff.name}
+        fare={Number(booking.fare_amount)}
+        paymentMethod={booking.payment_method}
+        paidLine={formatPaidAt(booking.paid_at ?? booking.completed_at)}
+        pickupName={booking.pickup.name}
+        dropoffName={booking.dropoff.name}
+        distanceKm={booking.distance_km}
+        passengerCount={booking.party_size}
+        driverLine={driverName ? (tricycle?.plate_number ? `${driverName} · ${tricycle.plate_number}` : driverName) : tricycle?.plate_number}
+        paymentReference={booking.payment_reference}
+        onHome={finishRide}
+        onRate={handleRate}
+        topInset={topInset}
+        bottomInset={bottomInset}
+      />
+    );
+  }
+
   return (
     <View style={styles.container}>
       <TrivoraMap
@@ -183,7 +218,7 @@ function QrRideView({ ride, topInset }: { ride: QrActiveRide; topInset: number }
         </FloatingIconButton>
       )}
 
-      <View style={styles.sheet} onLayout={(e: LayoutChangeEvent) => setSheetHeight(e.nativeEvent.layout.height)}>
+      <View style={[styles.sheet, { paddingBottom: SPACING.lg + bottomInset }]} onLayout={(e: LayoutChangeEvent) => setSheetHeight(e.nativeEvent.layout.height)}>
         <View style={styles.handle} />
 
         {/* Status — the one headline for where this ride stands */}
@@ -271,48 +306,24 @@ function QrRideView({ ride, topInset }: { ride: QrActiveRide; topInset: number }
           <Button label="Leave Ride" variant="dangerOutline" onPress={() => setConfirmLeave(true)} loading={isLeaving} />
         )}
         {/* Payment — status only; the driver collects and confirms on the Driver app */}
-        {isDone && (
+        {isPaymentPending && (
           <>
             <View style={styles.divider} />
             <View style={styles.paymentBlock}>
               <View style={styles.paymentHeader}>
                 <Text style={styles.paymentTitle}>Payment</Text>
-                <Text style={[styles.paymentBadge, isPaid && styles.paymentBadgePaid]}>
-                  {isPaid ? `Paid · ${isGcash ? 'GCash' : 'Cash'}` : isGcash ? 'GCash' : 'Cash'}
-                </Text>
+                <Text style={styles.paymentBadge}>{isGcash ? 'GCash' : 'Cash'}</Text>
               </View>
-              {isPaymentPending ? (
-                <>
-                  <Text style={styles.body}>
-                    {isGcash
-                      ? 'Please pay the driver using the GCash QR shown by the driver, then give them the GCash reference number.'
-                      : 'Please pay the driver the fare shown above in cash.'}
-                  </Text>
-                  <Text style={styles.waitingText}>Waiting for driver to confirm payment.</Text>
-                </>
-              ) : (
-                <Text style={styles.body}>The driver confirmed your payment of {formatPeso(booking.fare_amount)}.</Text>
-              )}
+              <Text style={styles.body}>
+                {isGcash
+                  ? 'Please pay the driver using the GCash QR shown by the driver, then give them the GCash reference number.'
+                  : 'Please pay the driver the fare shown above in cash.'}
+              </Text>
+              <Text style={styles.waitingText}>Waiting for driver to confirm payment.</Text>
             </View>
           </>
         )}
 
-        {isPaid && (
-          <View style={styles.doneActions}>
-            <TouchableOpacity
-              style={styles.homeBtn}
-              onPress={finishRide}
-              activeOpacity={0.7}
-              accessibilityRole="button"
-              accessibilityLabel="Home"
-            >
-              <Home size={20} color={COLORS.primary} />
-            </TouchableOpacity>
-            <View style={styles.flex}>
-              <Button label="Rate Driver" icon={Star} onPress={handleRate} />
-            </View>
-          </View>
-        )}
         {isCancelled && <Button label="Back to Home" onPress={finishRide} />}
       </View>
 
@@ -334,19 +345,12 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.backgroundSubtle },
   flex: { flex: 1 },
   minimizeBtn: { position: 'absolute', left: SPACING.md },
-  doneActions: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
-  homeBtn: {
-    width: 52, height: 52, borderRadius: RADIUS.md,
-    borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.background,
-    alignItems: 'center', justifyContent: 'center',
-  },
 
   // Payment (after drop-off)
   paymentBlock: { gap: SPACING.sm },
   paymentHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   paymentTitle: { ...TYPOGRAPHY.h3, color: COLORS.textPrimary },
   paymentBadge: { ...TYPOGRAPHY.label, color: COLORS.textSecondary },
-  paymentBadgePaid: { color: COLORS.emerald },
   waitingText: { ...TYPOGRAPHY.bodySmall, fontWeight: '600', color: COLORS.primary },
   sheet: {
     position: 'absolute', left: 0, right: 0, bottom: 0,

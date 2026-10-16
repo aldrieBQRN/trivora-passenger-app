@@ -109,6 +109,10 @@ interface BookingContextType {
    * currentLat/currentLng. */
   currentLat: number | null;
   currentLng: number | null;
+  /** Reverse-geocoded label of that real GPS fix — null until resolved. Unlike `pickup.name`, a
+   * manual pickup (e.g. after Swap) never changes it, so Home's header always shows where the
+   * passenger actually is. */
+  currentLocationLabel: string | null;
   /** Re-fetches device GPS and sets it as pickup, switching pickupMode back to 'current_location'. */
   useCurrentLocationForPickup: () => void;
   /** Alias for useCurrentLocationForPickup used specifically as the location-error Retry action —
@@ -336,6 +340,7 @@ export function BookingProvider({ children }: { children: ReactNode }) {
   // just duplicate what these two already say.
   const [currentLat, setCurrentLat] = useState<number | null>(null);
   const [currentLng, setCurrentLng] = useState<number | null>(null);
+  const [currentLocationLabel, setCurrentLocationLabel] = useState<string | null>(null);
   // Guards a reverse-geocode reply that resolves after the passenger has already moved on to a
   // manual pickup (or a newer GPS fix) — without this, a slow network reply could stomp a
   // pickup the passenger no longer has selected.
@@ -661,6 +666,7 @@ export function BookingProvider({ children }: { children: ReactNode }) {
 
       reverseGeocode(coords).then((geo) => {
         if (requestId !== currentLocationRequestIdRef.current) return;
+        setCurrentLocationLabel(geo.address);
         setPickup((prev) =>
           prev.category === 'Current' && prev.lat === coords.lat && prev.lng === coords.lng
             ? { ...prev, name: geo.address, address: geo.address }
@@ -1470,6 +1476,7 @@ export function BookingProvider({ children }: { children: ReactNode }) {
         locationError,
         currentLat,
         currentLng,
+        currentLocationLabel,
         useCurrentLocationForPickup,
         retryLocation,
         matchedToda,

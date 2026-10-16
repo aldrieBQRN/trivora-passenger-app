@@ -9,6 +9,7 @@ import {
   ScrollView,
   Platform,
   KeyboardAvoidingView,
+  StatusBar,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, RADIUS, SHADOWS, SPACING, BUTTONS, TYPOGRAPHY } from '../constants/theme';
@@ -70,6 +71,10 @@ export default function AddEditSavedPlaceModal({
 }: AddEditSavedPlaceModalProps) {
   // Bottom sheet clears the phone's navigation bar (gesture or 3-button).
   const insets = useSafeAreaInsets();
+  // The full-screen pick step draws under the status/navigation bars, so it clears them itself
+  // with the same inset math App.tsx applies to the Saved Places page.
+  const safeTop = Math.max(insets.top, Platform.OS === 'android' ? StatusBar.currentHeight || 28 : 0);
+  const safeBottom = Math.max(insets.bottom, Platform.OS === 'ios' ? 24 : Platform.OS === 'android' ? 16 : 0);
   const [step, setStep] = useState<'pick' | 'confirm'>('pick');
   const [picked, setPicked] = useState<PickedLocation | null>(null);
   const [label, setLabel] = useState('');
@@ -142,24 +147,33 @@ export default function AddEditSavedPlaceModal({
           in a modal so it layers above whichever screen opened this add flow. Picking a search
           result, a suggested/nearby place, a saved place, or a pinned map location drops the
           passenger into the confirm bottom sheet below. */}
-      <Modal visible={visible && step === 'pick'} animationType="slide" onRequestClose={onClose}>
-        <DestinationSearchScreen
-          title="Add a Place"
-          onBack={() => {
-            if (justSelectedRef.current) {
-              // The picker auto-dismisses itself after a selection (it fires onSelect, then this
-              // onBack) — the confirm step already owns the flow, so this trailing call must not
-              // close the whole modal. Consume the flag so a later header-back works normally.
-              justSelectedRef.current = false;
-              return;
-            }
-            onClose();
-          }}
-          mode="destination"
-          currentLocation={pickStartLocation}
-          showPinRoute={false}
-          onSelect={(loc) => handlePickResult({ name: loc.name, address: loc.address || loc.name, lat: loc.lat, lng: loc.lng })}
-        />
+      <Modal
+        visible={visible && step === 'pick'}
+        animationType="slide"
+        onRequestClose={onClose}
+        statusBarTranslucent
+        navigationBarTranslucent
+      >
+        <View style={[styles.pickContainer, { paddingBottom: safeBottom }]}>
+          <DestinationSearchScreen
+            topInset={safeTop}
+            title="Add a Place"
+            onBack={() => {
+              if (justSelectedRef.current) {
+                // The picker auto-dismisses itself after a selection (it fires onSelect, then this
+                // onBack) — the confirm step already owns the flow, so this trailing call must not
+                // close the whole modal. Consume the flag so a later header-back works normally.
+                justSelectedRef.current = false;
+                return;
+              }
+              onClose();
+            }}
+            mode="destination"
+            currentLocation={pickStartLocation}
+            showPinRoute={false}
+            onSelect={(loc) => handlePickResult({ name: loc.name, address: loc.address || loc.name, lat: loc.lat, lng: loc.lng })}
+          />
+        </View>
       </Modal>
 
       {/* Confirm Place — a bottom sheet, not full-screen, since it's a short final step (label +
@@ -252,6 +266,10 @@ export default function AddEditSavedPlaceModal({
 }
 
 const styles = StyleSheet.create({
+  pickContainer: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+  },
   confirmOverlay: {
     flex: 1,
     backgroundColor: 'rgba(15, 23, 42, 0.6)',

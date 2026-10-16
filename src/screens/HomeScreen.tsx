@@ -44,6 +44,7 @@ export default function HomeScreen({
     selectDestination,
     currentLat,
     currentLng,
+    currentLocationLabel,
     isLocatingPickup,
     locationError,
     retryLocation,
@@ -158,12 +159,13 @@ export default function HomeScreen({
 
         <View style={styles.headerTextCol}>
           <Text style={styles.headerTitle} numberOfLines={1}>{greeting}, {firstName}</Text>
-          {/* Where the passenger is right now — the real reverse-geocoded pick-up address (the
-              same one "Where to?" books from), never a placeholder town name. */}
+          {/* Where the passenger is right now — the real reverse-geocoded GPS address, never a
+              placeholder town name, and never `pickup.name` (a manual/swapped pickup is not where
+              the passenger is). */}
           <View style={styles.headerLocationRow}>
             <MapPin size={12} color={locationKnown ? COLORS.primary : COLORS.textMuted} strokeWidth={2.4} />
             <Text style={styles.headerLocation} numberOfLines={1}>
-              {locationKnown ? pickup.name : 'Finding your location…'}
+              {locationKnown ? currentLocationLabel ?? 'Locating your position…' : 'Finding your location…'}
             </Text>
           </View>
         </View>

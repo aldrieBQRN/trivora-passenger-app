@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '../constants/theme';
 import { useBooking } from '../context/BookingContext';
-import { Check, MapPin, Receipt, Home, Star, Banknote, Smartphone, ChevronRight } from 'lucide-react-native';
+import { MapPin, Banknote, Smartphone } from 'lucide-react-native';
 import TripReceiptScreen from './TripReceiptScreen';
-import Button from '../components/Button';
+import PaymentSuccessView from '../components/PaymentSuccessView';
 
 /**
  * End of a booked ride, in two states driven by the backend payment status (BookingContext keeps
@@ -39,88 +39,24 @@ export default function TripCompletedScreen() {
   }
 
   if (isPaid) {
-    const PaidMethodIcon = paymentMethod === 'gcash' ? Smartphone : Banknote;
     return (
-      <View style={styles.container}>
-        <ScrollView contentContainerStyle={styles.scrollContent}>
-          <View style={styles.successHalo}>
-            <View style={[styles.iconCircle, styles.iconCirclePaid]}>
-              <Check size={34} color={COLORS.textInverse} strokeWidth={3} />
-            </View>
-          </View>
-          <Text style={styles.title}>Payment Successful</Text>
-          <Text style={styles.subtitle}>Your trip to {dropoff.name} is complete.</Text>
-
-          {/* Total paid — the green twin of the navy "Amount to pay" card */}
-          <View style={[styles.fareCard, styles.fareCardPaid]}>
-            <View style={styles.fareCardTop}>
-              <Text style={styles.fareCardLabel}>TOTAL PAID</Text>
-              <View style={styles.methodPill}>
-                <PaidMethodIcon size={13} color={COLORS.textInverse} />
-                <Text style={styles.methodPillText}>{methodLabel}</Text>
-              </View>
-            </View>
-            <Text style={styles.fareCardValue}>₱{fare.toFixed(2)}</Text>
-            <Text style={styles.fareCardBreakdown}>
-              {latestReceipt ? `${latestReceipt.date} · ${latestReceipt.time}` : 'Paid to your driver'}
-            </Text>
-          </View>
-
-          {/* Trip summary — route, driver and reference only when the receipt has them */}
-          <View style={styles.card}>
-            {latestReceipt ? (
-              <View style={styles.routeBlock}>
-                <View style={styles.routeRow}>
-                  <View style={[styles.routeDot, styles.routeDotPickup]} />
-                  <Text style={styles.routeText} numberOfLines={1}>{latestReceipt.pickup}</Text>
-                </View>
-                <View style={styles.routeLine} />
-                <View style={styles.routeRow}>
-                  <View style={[styles.routeDot, styles.routeDotDropoff]} />
-                  <Text style={styles.routeText} numberOfLines={1}>{latestReceipt.dropoff}</Text>
-                </View>
-              </View>
-            ) : null}
-            <SummaryRow label="Distance" value={`${Number(distanceKm).toFixed(1)} km`} />
-            <SummaryRow label="Passengers" value={`${passengerCount}`} />
-            {latestReceipt?.driverName ? (
-              <SummaryRow
-                label="Driver"
-                value={latestReceipt.plateNumber ? `${latestReceipt.driverName} · ${latestReceipt.plateNumber}` : latestReceipt.driverName}
-              />
-            ) : null}
-            {latestReceipt?.paymentReference ? (
-              <SummaryRow label="GCash reference" value={latestReceipt.paymentReference} />
-            ) : null}
-            <SummaryRow label="Payment status" value="Paid" paid />
-          </View>
-
-          {latestReceipt ? (
-            <TouchableOpacity style={styles.receiptLink} onPress={() => setShowReceipt(true)} activeOpacity={0.7}>
-              <View style={styles.cardIcon}>
-                <Receipt size={18} color={COLORS.primary} />
-              </View>
-              <Text style={styles.receiptLinkText}>View Official E-Receipt</Text>
-              <ChevronRight size={18} color={COLORS.textMuted} />
-            </TouchableOpacity>
-          ) : null}
-        </ScrollView>
-
-        <View style={styles.footer}>
-          <TouchableOpacity
-            style={styles.homeBtn}
-            onPress={resetToHome}
-            activeOpacity={0.7}
-            accessibilityRole="button"
-            accessibilityLabel="Home"
-          >
-            <Home size={20} color={COLORS.primary} />
-          </TouchableOpacity>
-          <View style={styles.flex}>
-            <Button label="Rate Driver" icon={Star} onPress={() => setScreenState('rate_review')} />
-          </View>
-        </View>
-      </View>
+      <PaymentSuccessView
+        destinationName={dropoff.name}
+        fare={fare}
+        paymentMethod={paymentMethod}
+        paidLine={latestReceipt ? `${latestReceipt.date} · ${latestReceipt.time}` : 'Paid to your driver'}
+        pickupName={latestReceipt?.pickup}
+        dropoffName={latestReceipt?.dropoff}
+        distanceKm={distanceKm}
+        passengerCount={passengerCount}
+        driverLine={latestReceipt?.driverName
+          ? (latestReceipt.plateNumber ? `${latestReceipt.driverName} · ${latestReceipt.plateNumber}` : latestReceipt.driverName)
+          : null}
+        paymentReference={latestReceipt?.paymentReference}
+        onViewReceipt={latestReceipt ? () => setShowReceipt(true) : undefined}
+        onHome={resetToHome}
+        onRate={() => setScreenState('rate_review')}
+      />
     );
   }
 
@@ -130,11 +66,15 @@ export default function TripCompletedScreen() {
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.iconCircle}>
-          <MapPin size={30} color={COLORS.textInverse} strokeWidth={2.4} />
+        <View style={styles.header}>
+          <View style={styles.statusCircle}>
+            <MapPin size={22} color={COLORS.textInverse} strokeWidth={2.4} />
+          </View>
+          <View style={styles.flex}>
+            <Text style={styles.title}>You've reached your destination</Text>
+            <Text style={styles.subtitle} numberOfLines={2}>{dropoff.name}</Text>
+          </View>
         </View>
-        <Text style={styles.title}>You've reached your destination</Text>
-        <Text style={styles.subtitle}>{dropoff.name}</Text>
 
         {/* Amount to pay — same navy fare card the driver sees on Collect Payment */}
         <View style={styles.fareCard}>
@@ -193,44 +133,25 @@ function PayStep({ step, text }: { step: number; text: string }) {
   );
 }
 
-function SummaryRow({ label, value, paid }: { label: string; value: string; paid?: boolean }) {
-  return (
-    <View style={styles.summaryRow}>
-      <Text style={styles.summaryLabel}>{label}</Text>
-      <Text style={[styles.summaryValue, paid && styles.paidValue]}>{value}</Text>
-    </View>
-  );
-}
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   flex: { flex: 1 },
+  // Same page padding and header as the Driver app's DriverFareCollectScreen.
   scrollContent: {
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.xl,
-    alignItems: 'center',
+    padding: SPACING.lg,
   },
-  iconCircle: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
+  header: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm + 4 },
+  statusCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: RADIUS.full,
     backgroundColor: COLORS.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: SPACING.md,
   },
-  iconCirclePaid: { backgroundColor: COLORS.success, marginBottom: 0 },
-  successHalo: {
-    width: 92,
-    height: 92,
-    borderRadius: RADIUS.full,
-    backgroundColor: COLORS.successLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: SPACING.md,
-  },
-  title: { ...TYPOGRAPHY.h2, color: COLORS.textPrimary, textAlign: 'center' },
-  subtitle: { ...TYPOGRAPHY.bodySmall, color: COLORS.textSecondary, textAlign: 'center', marginTop: 4 },
+  title: { ...TYPOGRAPHY.h2, color: COLORS.textPrimary },
+  subtitle: { ...TYPOGRAPHY.bodySmall, color: COLORS.textSecondary, marginTop: 2 },
   fareCard: {
     width: '100%',
     marginTop: SPACING.lg,
@@ -298,58 +219,4 @@ const styles = StyleSheet.create({
   },
   waitingText: { ...TYPOGRAPHY.bodySmall, fontWeight: '700', color: COLORS.primary },
   waitingHint: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary, marginTop: 2 },
-  summaryRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: SPACING.md,
-    paddingTop: SPACING.sm,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.border,
-  },
-  summaryLabel: { ...TYPOGRAPHY.body, color: COLORS.textSecondary },
-  summaryValue: { ...TYPOGRAPHY.body, fontWeight: '700', color: COLORS.textPrimary, flexShrink: 1, textAlign: 'right' },
-  paidValue: { color: COLORS.success },
-  receiptLink: {
-    width: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.sm + 4,
-    marginTop: SPACING.md,
-    padding: SPACING.md,
-    borderRadius: RADIUS.lg,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    backgroundColor: COLORS.surface,
-  },
-  receiptLinkText: { ...TYPOGRAPHY.body, color: COLORS.primary, fontWeight: '700', flex: 1 },
-  fareCardPaid: { backgroundColor: COLORS.success },
-  routeBlock: { paddingBottom: SPACING.xs },
-  routeRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm + 2 },
-  routeDot: { width: 10, height: 10, borderRadius: RADIUS.full },
-  routeDotPickup: { backgroundColor: COLORS.success },
-  routeDotDropoff: { backgroundColor: COLORS.danger },
-  routeLine: { width: 2, height: 14, marginLeft: 4, marginVertical: 2, backgroundColor: COLORS.border },
-  routeText: { ...TYPOGRAPHY.body, fontWeight: '600', color: COLORS.textPrimary, flex: 1 },
-  footer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.sm,
-    paddingHorizontal: SPACING.lg,
-    paddingTop: SPACING.md,
-    // App.tsx already reserves the device's bottom safe area — this keeps the buttons off that edge.
-    paddingBottom: SPACING.md,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.borderLight,
-  },
-  homeBtn: {
-    width: 52,
-    height: 52,
-    borderRadius: RADIUS.md,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    backgroundColor: COLORS.background,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
 });

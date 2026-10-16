@@ -356,3 +356,30 @@ export async function searchPlaces(
     return [];
   }
 }
+
+/**
+ * Exact coordinates for a named place, via the same Nominatim lookup as searchPlaces. Used for
+ * Suggested places that came from the backend's offline fallback list (ids `fallback/...`), whose
+ * coordinates are only approximate. Returns the match closest to `near` within `maxMeters`, or
+ * null when nothing plausible is found (the caller then keeps the original point).
+ */
+export async function resolvePlaceCoordinates(
+  name: string,
+  near: RouteCoordinate,
+  maxMeters = 5000
+): Promise<PlaceSearchResult | null> {
+  // Fallback names often carry "Nasugbu"/"Poblacion" suffixes that OSM names don't, so retry
+  // once with those stripped if the full name finds nothing.
+  const shortName = name.replace(/\b(nasugbu|poblacion)\b/gi, '').replace(/\s+/g, ' ').trim();
+  const queries = Array.from(new Set([name, `${shortName} Nasugbu`]));
+
+  for (const query of queries) {
+    const results = await searchPlaces(query, { limit: 5 });
+    const best = results
+      .map((r) => ({ r, d: haversineMeters(near, r) }))
+      .filter(({ d }) => d <= maxMeters)
+      .sort((a, b) => a.d - b.d)[0];
+    if (best) return best.r;
+  }
+  return null;
+}

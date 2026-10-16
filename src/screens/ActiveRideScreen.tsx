@@ -2,19 +2,20 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, LayoutChangeEvent } from 'react-native';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '../constants/theme';
 import { useBooking } from '../context/BookingContext';
-import { Phone, MessageSquare, AlertTriangle, Star, MapPin } from 'lucide-react-native';
+import { Phone, MessageSquare, Star, MapPin } from 'lucide-react-native';
 import Avatar from '../components/Avatar';
 import TrivoraMap from '../components/TrivoraMap';
 import RideProgressStepper from '../components/RideProgressStepper';
-import SOSModal from '../components/SOSModal';
 import { useToast } from '../components/Toast';
 import { callPhoneNumber, messagePhoneNumber } from '../utils/deviceContact';
 
 interface ActiveRideScreenProps {
   topInset?: number;
+  /** Bottom safe-area inset — the sheet pads itself so it runs to the screen edge (full-bleed, like Home). */
+  bottomInset?: number;
 }
 
-export default function ActiveRideScreen({ topInset = 0 }: ActiveRideScreenProps) {
+export default function ActiveRideScreen({ topInset = 0, bottomInset = 0 }: ActiveRideScreenProps) {
   const {
     activeDriver,
     fareEstimate,
@@ -27,8 +28,6 @@ export default function ActiveRideScreen({ topInset = 0 }: ActiveRideScreenProps
     liveDriverLocation,
   } = useBooking();
   const { showToast } = useToast();
-
-  const [showSosModal, setShowSosModal] = useState(false);
 
   // Measured from actual layout rather than guessed, so the map keeps the driver/route inside
   // the visible area between the status pill and the bottom panel.
@@ -83,7 +82,7 @@ export default function ActiveRideScreen({ topInset = 0 }: ActiveRideScreenProps
       </View>
 
       {/* Driver, Fare & Safety Panel */}
-      <View style={styles.sheet} onLayout={handleSheetLayout}>
+      <View style={[styles.sheet, { paddingBottom: SPACING.lg + bottomInset }]} onLayout={handleSheetLayout}>
         <View style={styles.profileRow}>
           <Avatar name={activeDriver.name} imageUri={activeDriver.avatarUrl} tone="driver" size={48} />
 
@@ -117,7 +116,7 @@ export default function ActiveRideScreen({ topInset = 0 }: ActiveRideScreenProps
           )}
         </View>
 
-        {/* Actions — SOS kept equally reachable and visually distinct */}
+        {/* Actions */}
         <View style={styles.actionsRow}>
           <TouchableOpacity
             style={[styles.actionBtn, !hasDriverPhone && styles.actionBtnDisabled]}
@@ -138,17 +137,10 @@ export default function ActiveRideScreen({ topInset = 0 }: ActiveRideScreenProps
             <MessageSquare size={16} color={COLORS.primary} />
             <Text style={styles.actionBtnText}>Message</Text>
           </TouchableOpacity>
-
-          <TouchableOpacity style={styles.sosBtn} onPress={() => setShowSosModal(true)} activeOpacity={0.8}>
-            <AlertTriangle size={16} color={COLORS.danger} />
-            <Text style={styles.sosBtnText}>SOS</Text>
-          </TouchableOpacity>
         </View>
 
         <RideProgressStepper currentStep={hasArrivedDestination ? 'completed' : 'in_transit'} />
       </View>
-
-      <SOSModal visible={showSosModal} onClose={() => setShowSosModal(false)} driver={activeDriver} />
     </View>
   );
 }
@@ -293,22 +285,5 @@ const styles = StyleSheet.create({
     ...TYPOGRAPHY.caption,
     fontWeight: '700',
     color: COLORS.primary,
-  },
-  sosBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    backgroundColor: COLORS.dangerLight,
-    height: 44,
-    borderRadius: RADIUS.md,
-    borderWidth: 1,
-    borderColor: COLORS.dangerBorder,
-  },
-  sosBtnText: {
-    ...TYPOGRAPHY.caption,
-    fontWeight: '700',
-    color: COLORS.danger,
   },
 });

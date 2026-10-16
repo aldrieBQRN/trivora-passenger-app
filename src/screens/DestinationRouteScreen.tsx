@@ -11,9 +11,11 @@ import RouteSummaryStrip from '../components/RouteSummaryStrip';
 
 interface DestinationRouteScreenProps {
   topInset?: number;
+  /** Bottom safe-area inset — the sheet pads itself so it runs to the screen edge (full-bleed, like Home). */
+  bottomInset?: number;
 }
 
-export default function DestinationRouteScreen({ topInset = 0 }: DestinationRouteScreenProps) {
+export default function DestinationRouteScreen({ topInset = 0, bottomInset = 0 }: DestinationRouteScreenProps) {
   const {
     setScreenState,
     pickup,
@@ -96,7 +98,7 @@ export default function DestinationRouteScreen({ topInset = 0 }: DestinationRout
       </View>
 
       {/* Primary composition: editable route + CTA */}
-      <View style={styles.sheet} onLayout={handleSheetLayout}>
+      <View style={[styles.sheet, { paddingBottom: SPACING.lg + bottomInset }]} onLayout={handleSheetLayout}>
         <RouteSummaryStrip
           variant="editable"
           pickupLabel={pickup.name}
