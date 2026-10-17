@@ -17,7 +17,7 @@ interface TabHeaderProps {
 
 /**
  * Same component as the Driver app's TabHeader (keep the two in sync); that one reads the
- * status-bar inset itself instead of taking `topInset`, and has no `onBack` (nothing needs it yet).
+ * status-bar inset itself instead of taking `topInset`.
  *
  * Navy tab-page header — same treatment as Home's: a brand-navy panel with rounded bottom
  * corners, white title/subtitle, and an optional card whose vertical centre sits on the panel's

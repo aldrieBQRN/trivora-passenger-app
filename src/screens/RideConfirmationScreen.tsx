@@ -31,7 +31,14 @@ function toggleQuickNote(note: string, quick: string) {
  * breakdown, an optional note, and Confirm with the total beside it — the same building blocks as
  * the QR ride setup screen, so both ways to ride look and read alike.
  */
-export default function RideConfirmationScreen() {
+interface RideConfirmationScreenProps {
+  /** App.tsx doesn't pad this screen: the map strip runs under the status bar and the footer
+   * pads above the phone's navigation bar, like the other booking-flow screens. */
+  topInset?: number;
+  bottomInset?: number;
+}
+
+export default function RideConfirmationScreen({ topInset = 0, bottomInset = 0 }: RideConfirmationScreenProps) {
   const {
     setScreenState,
     pickup,
@@ -71,7 +78,7 @@ export default function RideConfirmationScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.mapStrip}>
+      <View style={[styles.mapStrip, { height: MAP_STRIP_HEIGHT + topInset }]}>
         <TrivoraMap
           pickup={pickup}
           dropoff={dropoff}
@@ -86,12 +93,12 @@ export default function RideConfirmationScreen() {
           routeSource={routeSource}
           showCompass={false}
           showRouteBadge={false}
-          topInset={BACK_BUTTON_TOP + BACK_BUTTON_SIZE}
+          topInset={topInset + BACK_BUTTON_TOP + BACK_BUTTON_SIZE}
           style={StyleSheet.absoluteFillObject}
         />
 
         <FloatingIconButton
-          style={styles.backButton}
+          style={{ ...styles.backButton, top: topInset + BACK_BUTTON_TOP }}
           size={BACK_BUTTON_SIZE}
           onPress={() => setScreenState('destination_select')}
           accessibilityLabel="Back"
@@ -241,7 +248,7 @@ export default function RideConfirmationScreen() {
         </View>
       </ScrollView>
 
-      <View style={styles.bottomBar}>
+      <View style={[styles.bottomBar, { paddingBottom: SPACING.md + bottomInset }]}>
         <View style={styles.flex}>
           <Text style={styles.rowCaption}>Total fare</Text>
           <Text style={styles.footerAmount}>₱{liveFare.total.toFixed(2)}</Text>

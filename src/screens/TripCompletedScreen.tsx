@@ -13,7 +13,13 @@ import PaymentSuccessView from '../components/PaymentSuccessView';
  *    QR on the DRIVER's app) and waits; no Home/Rate yet.
  *  - Payment Successful: once the driver confirms — fare, method, Paid, then [Home] [Rate Driver].
  */
-export default function TripCompletedScreen() {
+interface TripCompletedScreenProps {
+  /** App.tsx doesn't pad this screen: it runs under the status bar and phone navigation bar. */
+  topInset?: number;
+  bottomInset?: number;
+}
+
+export default function TripCompletedScreen({ topInset = 0, bottomInset = 0 }: TripCompletedScreenProps) {
   const {
     setScreenState,
     resetToHome,
@@ -35,7 +41,11 @@ export default function TripCompletedScreen() {
 
   // The e-receipt is a full page, not a sheet — it replaces the completed-trip screen.
   if (showReceipt && latestReceipt) {
-    return <TripReceiptScreen onBack={() => setShowReceipt(false)} receipt={latestReceipt} />;
+    return (
+      <View style={[styles.container, { paddingTop: topInset, paddingBottom: bottomInset }]}>
+        <TripReceiptScreen onBack={() => setShowReceipt(false)} receipt={latestReceipt} />
+      </View>
+    );
   }
 
   if (isPaid) {
@@ -56,6 +66,8 @@ export default function TripCompletedScreen() {
         onViewReceipt={latestReceipt ? () => setShowReceipt(true) : undefined}
         onHome={resetToHome}
         onRate={() => setScreenState('rate_review')}
+        topInset={topInset}
+        bottomInset={bottomInset}
       />
     );
   }
@@ -65,7 +77,7 @@ export default function TripCompletedScreen() {
 
   return (
     <View style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: SPACING.lg + topInset, paddingBottom: SPACING.lg + bottomInset }]}>
         <View style={styles.header}>
           <View style={styles.statusCircle}>
             <MapPin size={22} color={COLORS.textInverse} strokeWidth={2.4} />

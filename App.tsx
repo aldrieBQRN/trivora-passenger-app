@@ -198,7 +198,7 @@ function PassengerAppNavigator() {
     }
 
     if (screenState === 'confirm_fare') {
-      return <RideConfirmationScreen />;
+      return <RideConfirmationScreen topInset={safeTop} bottomInset={safeBottom} />;
     }
 
     if (screenState === 'searching') {
@@ -214,11 +214,11 @@ function PassengerAppNavigator() {
     }
 
     if (screenState === 'trip_completed') {
-      return <TripCompletedScreen />;
+      return <TripCompletedScreen topInset={safeTop} bottomInset={safeBottom} />;
     }
 
     if (screenState === 'rate_review') {
-      return <RateReviewScreen />;
+      return <RateReviewScreen topInset={safeTop} bottomInset={safeBottom} />;
     }
 
     // Main Tab Navigation Views (Screens 3, 11, 12)
@@ -287,7 +287,14 @@ function PassengerAppNavigator() {
   const isTabHeaderScreen = isTabVisible && (activeTab === 'trips' || activeTab === 'profile');
   // Scan to Ride setup pads its own top inset so the destination picker it opens can draw its navy
   // header under the status bar.
-  const ownsTopInset = isTabHeaderScreen || (isAuthenticated && qrStage === 'setup');
+  // Confirm Booking, Reached Destination / Payment Successful and Rate Driver pad both insets
+  // themselves (as the QR ride's Payment Successful page already does), so their own background
+  // runs under the status bar and the phone's navigation bar instead of the root's padding band.
+  const ownsSafeArea =
+    isAuthenticated &&
+    qrStage === 'idle' &&
+    (screenState === 'confirm_fare' || screenState === 'trip_completed' || screenState === 'rate_review');
+  const ownsTopInset = isTabHeaderScreen || (isAuthenticated && qrStage === 'setup') || ownsSafeArea;
 
   return (
     <View
@@ -304,7 +311,7 @@ function PassengerAppNavigator() {
           style={[
             styles.screenViewport,
             // Full-bleed map screens run to the bottom edge like Home and pad their own sheet instead.
-            !isTabVisible && !isSplashOrOnboarding && !isFullBleedMapScreen && { paddingBottom: safeBottom },
+            !isTabVisible && !isSplashOrOnboarding && !isFullBleedMapScreen && !ownsSafeArea && { paddingBottom: safeBottom },
           ]}
         >
           {renderCurrentScreen()}

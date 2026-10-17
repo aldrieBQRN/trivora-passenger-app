@@ -18,7 +18,13 @@ import Button from '../components/Button';
 
 const COMPLIMENT_TAGS = ['Safe Driving', 'Courteous', 'Clean Trike', 'On-time', 'Friendly'];
 
-export default function RateReviewScreen() {
+interface RateReviewScreenProps {
+  /** App.tsx doesn't pad this screen: it runs under the status bar and phone navigation bar. */
+  topInset?: number;
+  bottomInset?: number;
+}
+
+export default function RateReviewScreen({ topInset = 0, bottomInset = 0 }: RateReviewScreenProps) {
   const {
     finishReview,
     resetToHome,
@@ -63,7 +69,7 @@ export default function RateReviewScreen() {
   return (
     <View style={styles.container}>
       {/* Top Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: 8 + topInset }]}>
         <TouchableOpacity style={styles.backButton} onPress={resetToHome} activeOpacity={0.7}>
           <ArrowLeft size={20} color={COLORS.textPrimary} />
         </TouchableOpacity>
@@ -144,7 +150,7 @@ export default function RateReviewScreen() {
       </KeyboardAvoidingView>
 
       {/* Dominant Submit Review Button */}
-      <View style={styles.bottomBar}>
+      <View style={[styles.bottomBar, { paddingBottom: SPACING.md + bottomInset }]}>
         <Button label="Submit Review" onPress={handleSubmit} loading={isSubmitting} disabled={selectedRating < 1} />
       </View>
     </View>
@@ -163,6 +169,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.md,
     paddingTop: 8,
     paddingBottom: 8,
+    backgroundColor: COLORS.background,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
     ...SHADOWS.sm,
@@ -246,7 +253,7 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
   },
   chipSelected: {
-    backgroundColor: COLORS.primaryTint,
+    backgroundColor: COLORS.primary,
     borderColor: COLORS.primary,
   },
   chipText: {
@@ -255,7 +262,7 @@ const styles = StyleSheet.create({
   },
   chipTextSelected: {
     fontFamily: FONT_FAMILY,
-    color: COLORS.primary,
+    color: COLORS.textInverse,
     fontWeight: '700',
   },
   commentInput: {

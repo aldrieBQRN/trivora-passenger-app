@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Image, StyleSheet, View } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { Image, StyleSheet } from 'react-native';
 import { Map, Camera, Marker, GeoJSONSource, Layer, type CameraRef } from '@maplibre/maplibre-react-native';
 import { PICKUP_PIN_IMAGE, DESTINATION_PIN_IMAGE } from '../constants/mapPins';
 import { OPENFREEMAP_BRIGHT_STYLE, TOP_DOWN_PITCH, PIN_SIZE, deltaToZoom, routeLineFeature, routeLinePaint } from '../constants/openFreeMap';
@@ -80,9 +80,9 @@ function PinLocationModalContent({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [awaitingLocation]);
 
-  // The pin is fixed at the map's centre and the map moves under it, so the camera must follow any
-  // pin change the user didn't make by dragging (e.g. Pin Pickup's GPS fix arriving).
-  const [isDragging, setIsDragging] = useState(false);
+  // The pin is a marker the passenger drops by tapping; the map itself pans freely and never
+  // moves the pin. The camera only follows a pin change the passenger didn't make (e.g. Pin
+  // Pickup's GPS fix arriving).
   const lastPickRef = useRef<{ lat: number; lng: number } | null>(null);
   const pick = (point: { lat: number; lng: number }) => {
     lastPickRef.current = point;
@@ -101,28 +101,14 @@ function PinLocationModalContent({
     return <PinLocationPending isLocating={isLocating} error={locationError} onRetry={retryLocation} onClose={onClose} />;
   }
 
-  // Tap is a shortcut: the map glides so the tapped point sits under the centre pin.
+  // Tapping the map drops the pin exactly on the tapped point; the camera stays where it is.
   const handlePress = (e: { nativeEvent: { lngLat: [number, number] } }) => {
     if (awaitingLocation) return;
     const [lng, lat] = e.nativeEvent.lngLat;
-    cameraRef.current?.easeTo({ center: [lng, lat], pitch: TOP_DOWN_PITCH, duration: 400 });
     pick({ lat, lng });
   };
 
-  // Dragging the map: the point under the centre pin is picked once the map settles. Programmatic
-  // moves (recenter, follow, tap glide) aren't user interaction, so they never re-pick.
-  const handleRegionWillChange = (e: { nativeEvent: { userInteraction: boolean } }) => {
-    if (e.nativeEvent.userInteraction) setIsDragging(true);
-  };
-  const handleRegionDidChange = (e: { nativeEvent: { userInteraction: boolean; center: [number, number] } }) => {
-    setIsDragging(false);
-    if (awaitingLocation || !e.nativeEvent.userInteraction) return;
-    const [lng, lat] = e.nativeEvent.center;
-    if (lastPickRef.current && isSamePoint(lastPickRef.current, { lat, lng })) return;
-    pick({ lat, lng });
-  };
-
-  // Recenter on the pin (not a fit-to-route): the centre pin must always mark the map's centre.
+  // Recenter on the pin (not a fit-to-route).
   const handleRecenter = () => {
     if (awaitingLocation) return;
     if (pinnedLocation) {
@@ -145,7 +131,7 @@ function PinLocationModalContent({
       }}
       mode={mode}
       confirmLabel={confirmLabel}
-      interaction="drag"
+      interaction="tap"
       estimate={
         otherEndpoint && routeCoordinates.length > 0
           ? `${distanceKm.toFixed(1)} km · ${Math.max(1, Math.round(durationMinutes))} min · ₱${fareTotal.toFixed(2)} est.`
@@ -160,8 +146,6 @@ function PinLocationModalContent({
         logo={false}
         compass={false}
         onPress={handlePress}
-        onRegionWillChange={handleRegionWillChange}
-        onRegionDidChange={handleRegionDidChange}
       >
         <Camera
           ref={cameraRef}
@@ -190,31 +174,17 @@ function PinLocationModalContent({
           </Marker>
         ) : null}
 
+        {/* The pin being dropped, on the exact tapped point (tip anchored "bottom"). Coloured by
+            what it's ABOUT TO BECOME. */}
+        {pinnedLocation && !awaitingLocation ? (
+          <Marker id="pinned-pin" lngLat={[pinnedLocation.lng, pinnedLocation.lat]} anchor="bottom">
+            <Image source={mode === 'pickup' ? PICKUP_PIN_IMAGE : DESTINATION_PIN_IMAGE} style={PIN_SIZE} />
+          </Marker>
+        ) : null}
       </Map>
-
-      {/* The pin being dropped: fixed at the map's centre (tip on the exact point), lifted a little
-          while the map is being dragged. Coloured by what it's ABOUT TO BECOME. */}
-      {!awaitingLocation ? (
-        <View style={[styles.centerPin, isDragging && styles.centerPinLifted]} pointerEvents="none">
-          <Image source={mode === 'pickup' ? PICKUP_PIN_IMAGE : DESTINATION_PIN_IMAGE} style={PIN_SIZE} />
-        </View>
-      ) : null}
     </PinLocationSheet>
   );
 }
-
-const styles = StyleSheet.create({
-  centerPin: {
-    position: 'absolute',
-    top: '50%',
-    left: '50%',
-    marginLeft: -PIN_SIZE.width / 2,
-    marginTop: -PIN_SIZE.height,
-  },
-  centerPinLifted: {
-    transform: [{ translateY: -8 }],
-  },
-});
 
 /** Mounts the content only while open, so each opening starts fresh — in particular Pin Pickup
  * Location re-acquires the user's current position every time it is opened. */
