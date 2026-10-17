@@ -44,6 +44,19 @@ const REFRAME_THRESHOLD_KM = 0.12;
 /** Fixed breathing room added on top of the caller-supplied chrome insets. */
 const EDGE_MARGIN = 40;
 
+/** Compass bearing (degrees clockwise from north) from `from` to `to`. Used as the camera bearing
+ * whenever a trip is framed, so it reads bottom-to-top: pick-up at the bottom, destination at the
+ * top (same as the Driver app's booking maps). */
+function bearingBetween(from: { lat: number; lng: number }, to: { lat: number; lng: number }) {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const lat1 = toRad(from.lat);
+  const lat2 = toRad(to.lat);
+  const dLng = toRad(to.lng - from.lng);
+  const y = Math.sin(dLng) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
+
 export default function TrivoraMapNative({
   pickup = { lat: 14.0715, lng: 120.633, name: 'Bucana, Nasugbu Batangas' },
   dropoff = null,
@@ -189,7 +202,12 @@ export default function TrivoraMapNative({
             if (i % step === 0 || i === routeCoordinates.length - 1) points.push({ lat: c.lat, lng: c.lng });
           });
         }
-        camera.fitBounds(boundsOf(points), { padding: edgePadding, pitch: effectivePitch, duration: animated ? 500 : 0 });
+        camera.fitBounds(boundsOf(points), {
+          padding: edgePadding,
+          pitch: effectivePitch,
+          bearing: bearingBetween(pickup, targetEnd),
+          duration: animated ? 500 : 0,
+        });
       } else {
         if (awaitingHomeLocation) return; // no real position yet — framed when the first fix lands
         if (mountedWithoutCenterRef.current) {
@@ -209,7 +227,7 @@ export default function TrivoraMapNative({
               `padding=${JSON.stringify(padding)} zoom=${homeZoom.toFixed(2)}`
           );
         }
-        camera.easeTo({ center: [pinPoint.lng, pinPoint.lat], zoom: homeZoom, padding, pitch: effectivePitch, duration: animated ? 600 : 0 });
+        camera.easeTo({ center: [pinPoint.lng, pinPoint.lat], zoom: homeZoom, padding, pitch: effectivePitch, bearing: 0, duration: animated ? 600 : 0 });
       }
       if (driverLocation) lastFramedRef.current = { lat: driverLocation.lat, lng: driverLocation.lng };
     },
@@ -254,7 +272,7 @@ export default function TrivoraMapNative({
   if (__DEV__ && driverLocation) {
     console.log(`[passenger-driver-heading] latitude=${driverLocation.lat}`);
     console.log(`[passenger-driver-heading] longitude=${driverLocation.lng}`);
-    console.log(`[passenger-driver-heading] heading=${driverLocation.heading} (value passed to the marker's rotate transform)`);
+    console.log(`[passenger-driver-heading] heading=${driverLocation.heading}`);
   }
 
   if (__DEV__ && hasRoute) {
@@ -306,6 +324,7 @@ export default function TrivoraMapNative({
             bounds: boundsOf([pickup, dropoff]),
             padding: edgePadding,
             pitch: effectivePitch,
+            bearing: bearingBetween(pickup, dropoff),
           } : awaitingHomeLocation ? undefined : {
             center: [(homeLocation ?? pickup).lng, (homeLocation ?? pickup).lat],
             zoom: homeZoom,
@@ -342,16 +361,15 @@ export default function TrivoraMapNative({
           </Marker>
         ) : null}
 
-        {/* Moving Driver Marker — rendered last so it draws above the pins. */}
+        {/* Moving Driver Marker — rendered last so it draws above the pins. Kept upright (no heading
+            rotation): the trip map is already turned so the ride runs bottom-to-top. */}
         {driverLocation ? (
           <Marker id="driver" lngLat={[driverLocation.lng, driverLocation.lat]} anchor="center">
-            <View style={{ transform: [{ rotate: `${driverLocation.heading || 0}deg` }] }}>
-              <Image
-                source={TRICYCLE_MARKER_IMAGE}
-                style={styles.tricycleMarker}
-                resizeMode="contain"
-              />
-            </View>
+            <Image
+              source={TRICYCLE_MARKER_IMAGE}
+              style={styles.tricycleMarker}
+              resizeMode="contain"
+            />
           </Marker>
         ) : null}
       </Map>

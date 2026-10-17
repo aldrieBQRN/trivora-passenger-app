@@ -303,7 +303,9 @@ function PassengerAppNavigator() {
         { paddingTop: isFullBleedMapScreen || isSplashOrOnboarding || ownsTopInset ? 0 : safeTop },
       ]}
     >
-      <StatusBar style={isSplashOrOnboarding || (isAuthenticated && qrStage === 'scan') ? 'light' : 'dark'} backgroundColor={COLORS.background} />
+      {/* No backgroundColor: with edge-to-edge the status bar is always transparent over the page,
+          and passing a colour (unsupported there) left a black band above the plain white pages. */}
+      <StatusBar style={isSplashOrOnboarding || (isAuthenticated && qrStage === 'scan') ? 'light' : 'dark'} />
       <OfflineBanner />
       <View style={styles.container}>
         {/* Screen Viewport */}
