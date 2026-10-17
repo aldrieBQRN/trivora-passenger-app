@@ -10,7 +10,7 @@ import {
   Platform,
   Alert,
 } from 'react-native';
-import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '../constants/theme';
+import { COLORS, RADIUS, SPACING, TYPOGRAPHY, FONT_FAMILY } from '../constants/theme';
 import { ArrowLeft, Mail, Lock, Eye, EyeOff, KeyRound } from 'lucide-react-native';
 import { passengerApi } from '../services/api';
 import FloatingIconButton from '../components/FloatingIconButton';
@@ -356,6 +356,7 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
   },
   fieldInput: {
+    fontFamily: FONT_FAMILY,
     flex: 1,
     fontSize: 14,
     color: COLORS.textPrimary,

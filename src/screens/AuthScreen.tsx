@@ -12,7 +12,7 @@ import {
   Platform,
   Alert,
 } from 'react-native';
-import { COLORS, RADIUS, SPACING, BUTTONS, TYPOGRAPHY } from '../constants/theme';
+import { COLORS, RADIUS, SPACING, BUTTONS, TYPOGRAPHY, FONT_FAMILY } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { useNetwork } from '../context/NetworkContext';
 import { UserProfile } from '../types';
@@ -83,6 +83,12 @@ export default function AuthScreen({ onAuthenticated, onForgotPassword }: AuthSc
   // before the account is created.
   const [codeModalVisible, setCodeModalVisible] = useState(false);
   const [codeResendAfter, setCodeResendAfter] = useState(60);
+  // Sign-up runs in 3 steps: details -> verify email (code modal) -> create password. The token
+  // from the verified code is kept for the email it was issued to; changing the email after
+  // going back means verifying again.
+  const [registerStep, setRegisterStep] = useState<'details' | 'password'>('details');
+  const [verificationToken, setVerificationToken] = useState<string | null>(null);
+  const [verifiedEmail, setVerifiedEmail] = useState<string | null>(null);
 
   // Onboarding's last slide is a dark full-bleed photo; this screen is plain white — the
   // biggest color jump in the whole Splash->Onboarding->Login flow. A quick fade-in (same
@@ -96,6 +102,9 @@ export default function AuthScreen({ onAuthenticated, onForgotPassword }: AuthSc
     setIsRegister(register);
     setErrors({});
     setAgreedToTerms(false);
+    setRegisterStep('details');
+    setVerificationToken(null);
+    setVerifiedEmail(null);
   };
 
   const runAuth = (profile: UserProfile) => {
@@ -153,10 +162,24 @@ export default function AuthScreen({ onAuthenticated, onForgotPassword }: AuthSc
     }
   };
 
-  /** Called by the modal: verify the code, then create the account with the returned token. */
-  const verifyCodeAndRegister = async (code: string) => {
+  /** Step 2 (called by the modal): verify the code, keep its token, move on to the password step.
+   * A wrong code throws, and the modal shows the message. */
+  const verifyCode = async (code: string) => {
     const { verification_token } = await passengerApi.verifyRegistrationCode(email.trim(), code);
+    setVerificationToken(verification_token);
+    setVerifiedEmail(email.trim().toLowerCase());
+    setCodeModalVisible(false);
+    setErrors({});
+    setRegisterStep('password');
+  };
 
+  /** Step 3: create the account with the verified email's token and the chosen password. */
+  const createAccount = async () => {
+    if (!verificationToken) {
+      setRegisterStep('details');
+      return;
+    }
+    setLoading(true);
     try {
       const res: any = await passengerApi.register({
         name: fullName.trim(),
@@ -165,29 +188,51 @@ export default function AuthScreen({ onAuthenticated, onForgotPassword }: AuthSc
         password,
         terms_accepted: agreedToTerms,
         privacy_policy_accepted: agreedToTerms,
-        email_verification_token: verification_token,
+        email_verification_token: verificationToken,
       });
-      setCodeModalVisible(false);
       login(mapAuthResponseToUserProfile(res, email.trim()), res.token);
       onAuthenticated();
     } catch (err: any) {
-      // The code was right but the account couldn't be created (e.g. mobile number already
-      // used): close the modal and show the problem on the form.
-      setCodeModalVisible(false);
       if (err?.status !== undefined) {
         const fieldErrors = err?.data?.errors || {};
+        if (fieldErrors.password) {
+          setErrors({ password: fieldErrors.password[0] });
+          return;
+        }
+        // A details problem (e.g. mobile number already used, or the email check expired):
+        // back to step 1 to fix it. An email problem needs a fresh code.
+        if (fieldErrors.email || !fieldErrors.mobile_number) {
+          setVerificationToken(null);
+          setVerifiedEmail(null);
+        }
+        setRegisterStep('details');
         setErrors({
           phone: fieldErrors.mobile_number?.[0],
           email: fieldErrors.email?.[0] || (fieldErrors.mobile_number ? undefined : err.message),
         });
         return;
       }
-      showServerUnreachable(err, () => verifyCodeAndRegister(code), demoRegisteredProfile());
+      showServerUnreachable(err, createAccount, demoRegisteredProfile());
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleContinue = () => {
     const nextErrors: FormErrors = {};
+
+    // Sign-up step 3: password only (details were checked in step 1).
+    if (isRegister && registerStep === 'password') {
+      if (password.length < 8) nextErrors.password = 'Password must be at least 8 characters.';
+      if (confirmPassword !== password) nextErrors.confirmPassword = 'Passwords do not match.';
+      if (Object.keys(nextErrors).length > 0) {
+        setErrors(nextErrors);
+        return;
+      }
+      setErrors({});
+      createAccount();
+      return;
+    }
 
     if (!email.trim()) nextErrors.email = 'Email address is required.';
     else if (!EMAIL_PATTERN.test(email.trim())) nextErrors.email = 'Enter a valid email address.';
@@ -195,8 +240,6 @@ export default function AuthScreen({ onAuthenticated, onForgotPassword }: AuthSc
     if (isRegister) {
       if (fullName.trim().length < 2) nextErrors.name = 'Enter your full name.';
       if (!isValidMobile(phoneNumber)) nextErrors.phone = 'Enter a valid 10-digit mobile number.';
-      if (password.length < 8) nextErrors.password = 'Password must be at least 8 characters.';
-      if (confirmPassword !== password) nextErrors.confirmPassword = 'Passwords do not match.';
       if (!agreedToTerms) {
         nextErrors.terms = 'Please agree to the Terms & Conditions and Privacy Policy to continue.';
       }
@@ -210,8 +253,14 @@ export default function AuthScreen({ onAuthenticated, onForgotPassword }: AuthSc
     }
     setErrors({});
 
+    // Sign-up step 1 -> 2: email the code (skipped when this exact email is already verified,
+    // e.g. after going Back from the password step to fix the name).
     if (isRegister) {
-      startEmailVerification();
+      if (verificationToken && verifiedEmail === email.trim().toLowerCase()) {
+        setRegisterStep('password');
+      } else {
+        startEmailVerification();
+      }
       return;
     }
 
@@ -282,11 +331,31 @@ export default function AuthScreen({ onAuthenticated, onForgotPassword }: AuthSc
             </View>
 
             <Text style={styles.welcomeTitle}>
-              {isRegister ? 'Create an account' : 'Welcome back, Passenger!'}
+              {!isRegister ? 'Welcome back, Passenger!' : registerStep === 'password' ? 'Create a password' : 'Create an account'}
             </Text>
             <Text style={styles.welcomeSubtitle}>
-              {isRegister ? 'Sign up to start booking rides' : 'Log in to continue'}
+              {!isRegister
+                ? 'Log in to continue'
+                : registerStep === 'password'
+                ? `${email.trim()} is verified. Set a password to finish.`
+                : 'Sign up to start booking rides'}
             </Text>
+
+            {/* Sign-up progress: 1 details, 2 verify email (code modal open), 3 password */}
+            {isRegister && (() => {
+              const step = registerStep === 'password' ? 3 : codeModalVisible ? 2 : 1;
+              const stepName = step === 3 ? 'Create password' : step === 2 ? 'Verify email' : 'Your details';
+              return (
+                <View style={styles.stepIndicator} accessibilityLabel={`Step ${step} of 3, ${stepName}`}>
+                  <View style={styles.stepBars}>
+                    {[1, 2, 3].map((n) => (
+                      <View key={n} style={[styles.stepBar, n <= step && styles.stepBarActive]} />
+                    ))}
+                  </View>
+                  <Text style={styles.stepCaption}>Step {step} of 3 · {stepName}</Text>
+                </View>
+              );
+            })()}
           </View>
 
           {errors.form && (
@@ -295,8 +364,8 @@ export default function AuthScreen({ onAuthenticated, onForgotPassword }: AuthSc
             </View>
           )}
 
-          {/* Full Name — register only */}
-          {isRegister && (
+          {/* Full Name + Mobile — sign-up step 1 */}
+          {isRegister && registerStep === 'details' && (
             <>
               <Text style={styles.fieldLabel}>Full Name</Text>
               <View style={[styles.fieldBox, errors.name && styles.fieldBoxError]}>
@@ -343,7 +412,9 @@ export default function AuthScreen({ onAuthenticated, onForgotPassword }: AuthSc
             </>
           )}
 
-          {/* Email */}
+          {/* Email — login, or sign-up step 1 */}
+          {(!isRegister || registerStep === 'details') && (
+          <>
           <Text style={styles.fieldLabel}>Email Address</Text>
           <View style={[styles.fieldBox, errors.email && styles.fieldBoxError]}>
             <Mail size={18} color={errors.email ? COLORS.danger : COLORS.primary} />
@@ -362,8 +433,12 @@ export default function AuthScreen({ onAuthenticated, onForgotPassword }: AuthSc
             />
           </View>
           {errors.email ? <Text style={styles.errorText}>{errors.email}</Text> : null}
+          </>
+          )}
 
-          {/* Password */}
+          {/* Password — login, or sign-up step 3 */}
+          {(!isRegister || registerStep === 'password') && (
+          <>
           <Text style={styles.fieldLabel}>Password</Text>
           <View style={[styles.fieldBox, errors.password && styles.fieldBoxError]}>
             <Lock size={18} color={errors.password ? COLORS.danger : COLORS.primary} />
@@ -388,9 +463,11 @@ export default function AuthScreen({ onAuthenticated, onForgotPassword }: AuthSc
             </TouchableOpacity>
           </View>
           {errors.password ? <Text style={styles.errorText}>{errors.password}</Text> : null}
+          </>
+          )}
 
-          {/* Confirm Password — register only */}
-          {isRegister && (
+          {/* Confirm Password — sign-up step 3 */}
+          {isRegister && registerStep === 'password' && (
             <>
               <Text style={styles.fieldLabel}>Confirm Password</Text>
               <View style={[styles.fieldBox, errors.confirmPassword && styles.fieldBoxError]}>
@@ -441,8 +518,8 @@ export default function AuthScreen({ onAuthenticated, onForgotPassword }: AuthSc
             </View>
           )}
 
-          {/* Terms & Conditions / Privacy Policy consent — register only, never pre-checked */}
-          {isRegister && (
+          {/* Terms & Conditions / Privacy Policy consent — sign-up step 1, never pre-checked */}
+          {isRegister && registerStep === 'details' && (
             <>
               <View style={styles.termsRow}>
                 <TouchableOpacity
@@ -476,11 +553,26 @@ export default function AuthScreen({ onAuthenticated, onForgotPassword }: AuthSc
           {/* Continue CTA Button */}
           <View style={styles.ctaSpacing}>
             <Button
-              label={isRegister ? 'Create Account' : 'Log In'}
+              label={!isRegister ? 'Log In' : registerStep === 'password' ? 'Create Account' : 'Continue'}
               onPress={handleContinue}
               loading={loading}
             />
           </View>
+
+          {/* Sign-up step 3: back to the details (the verified email is kept unless changed) */}
+          {isRegister && registerStep === 'password' && (
+            <TouchableOpacity
+              style={styles.backLink}
+              onPress={() => {
+                setErrors({});
+                setRegisterStep('details');
+              }}
+              disabled={loading}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.backLinkText}>Back to details</Text>
+            </TouchableOpacity>
+          )}
 
           {/* Register Toggle Footer */}
           <View style={styles.footerRow}>
@@ -498,7 +590,8 @@ export default function AuthScreen({ onAuthenticated, onForgotPassword }: AuthSc
         visible={codeModalVisible}
         email={email.trim()}
         resendAfterSeconds={codeResendAfter}
-        onVerify={verifyCodeAndRegister}
+        onVerify={verifyCode}
+        verifyLabel="Verify Email"
         onResend={async () => {
           await passengerApi.sendRegistrationCode(email.trim());
         }}
@@ -592,6 +685,7 @@ const styles = StyleSheet.create({
   },
   // Typed text is bold, matching the Driver app's FormField input.
   fieldInput: {
+    fontFamily: FONT_FAMILY,
     flex: 1,
     fontSize: 14,
     fontWeight: '700',
@@ -634,9 +728,11 @@ const styles = StyleSheet.create({
     paddingRight: 8,
   },
   flagEmoji: {
+    fontFamily: FONT_FAMILY,
     fontSize: 16,
   },
   countryCodeText: {
+    fontFamily: FONT_FAMILY,
     fontSize: 13,
     fontWeight: '700',
     color: COLORS.textPrimary,
@@ -648,6 +744,7 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   numberInput: {
+    fontFamily: FONT_FAMILY,
     flex: 1,
     fontSize: 14,
     fontWeight: '700',
@@ -705,11 +802,45 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   termsLink: {
+    fontFamily: FONT_FAMILY,
     color: COLORS.primary,
     fontWeight: '700',
   },
   ctaSpacing: {
     marginTop: SPACING.sm,
+  },
+  // Sign-up progress (3 steps)
+  stepIndicator: {
+    alignItems: 'center',
+    marginTop: SPACING.md,
+    gap: 6,
+  },
+  stepBars: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  stepBar: {
+    width: 32,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: COLORS.border,
+  },
+  stepBarActive: {
+    backgroundColor: COLORS.primary,
+  },
+  stepCaption: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+  },
+  backLink: {
+    alignSelf: 'center',
+    marginTop: SPACING.md,
+    paddingVertical: SPACING.xs,
+  },
+  backLinkText: {
+    ...TYPOGRAPHY.bodySmall,
+    fontWeight: '600',
+    color: COLORS.primary,
   },
   footerRow: {
     flexDirection: 'row',
@@ -718,10 +849,12 @@ const styles = StyleSheet.create({
     marginTop: SPACING.lg,
   },
   footerText: {
+    fontFamily: FONT_FAMILY,
     fontSize: 13,
     color: COLORS.textSecondary,
   },
   registerLink: {
+    fontFamily: FONT_FAMILY,
     fontSize: 13,
     fontWeight: '700',
     color: COLORS.primary,

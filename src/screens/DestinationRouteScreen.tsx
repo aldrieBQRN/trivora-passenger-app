@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, LayoutChangeEvent } from 'react-native';
-import { COLORS, RADIUS, SHADOWS, SPACING } from '../constants/theme';
+import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '../constants/theme';
 import { useBooking } from '../context/BookingContext';
 import { ArrowLeft, ArrowUpDown } from 'lucide-react-native';
 import TrivoraMap from '../components/TrivoraMap';
@@ -79,7 +79,8 @@ export default function DestinationRouteScreen({ topInset = 0, bottomInset = 0 }
         routeCoordinates={hasDestination ? routeCoordinates : []}
         routeSource={routeSource}
         showTodaPill={false}
-        showRouteBadge={hasDestination}
+        // Distance/time are in the sheet's trip summary now, so the map stays uncluttered.
+        showRouteBadge={false}
         showCompass={true}
         topInset={topInset + 10 + topOverlayHeight}
         bottomInset={sheetHeight}
@@ -106,6 +107,13 @@ export default function DestinationRouteScreen({ topInset = 0, bottomInset = 0 }
           onPressPickup={() => setPickerMode('pickup')}
           onPressDropoff={() => setPickerMode('destination')}
         />
+
+        {/* Trip summary before Continue. Passenger count (chosen next) can change the total. */}
+        {hasDestination ? (
+          <Text style={styles.tripSummary}>
+            {fareEstimate.distanceKm.toFixed(1)} km · {fareEstimate.durationMinutes} min · ₱{fareEstimate.total.toFixed(2)} est.
+          </Text>
+        ) : null}
 
         <Button
           label="Continue"
@@ -143,4 +151,9 @@ const styles = StyleSheet.create({
     gap: SPACING.sm + 2,
     ...SHADOWS.sheet,
   },
-  });
+  tripSummary: {
+    ...TYPOGRAPHY.bodySmall,
+    fontWeight: '600',
+    color: COLORS.primary,
+  },
+});

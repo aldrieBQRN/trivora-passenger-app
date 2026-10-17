@@ -50,7 +50,9 @@ function getReverbPort(): number {
     const p = parseInt(envPort, 10);
     if (!isNaN(p)) return p;
   }
-  return 8080;
+  // Production (https) reaches Reverb through the web server's nginx proxy on 443;
+  // local dev talks to `php artisan reverb:start` directly on 8080.
+  return getReverbScheme() === 'https' ? 443 : 8080;
 }
 
 function getReverbScheme(): 'http' | 'https' {

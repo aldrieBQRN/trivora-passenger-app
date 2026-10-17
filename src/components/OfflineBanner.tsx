@@ -3,6 +3,7 @@ import { Animated, StyleSheet, Text, View, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WifiOff, Wifi } from 'lucide-react-native';
 import { useNetwork } from '../context/NetworkContext';
+import { FONT_FAMILY } from '../constants/theme';
 
 export default function OfflineBanner() {
   const { isConnected } = useNetwork();
@@ -104,6 +105,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#16A34A', // Vibrant success green
   },
   text: {
+    fontFamily: FONT_FAMILY,
     color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '700',

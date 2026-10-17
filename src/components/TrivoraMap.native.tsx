@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useMemo, useCallback, useState } from 'react';
 import { View, Text, Image, StyleSheet } from 'react-native';
 import { Map, Camera, Marker, GeoJSONSource, Layer, type CameraRef } from '@maplibre/maplibre-react-native';
-import { COLORS, RADIUS, SHADOWS } from '../constants/theme';
+import { COLORS, RADIUS, SHADOWS, FONT_FAMILY } from '../constants/theme';
 import { Zap } from 'lucide-react-native';
 
 import { PICKUP_PIN_IMAGE, DESTINATION_PIN_IMAGE, TRICYCLE_MARKER_IMAGE } from '../constants/mapPins';
@@ -76,7 +76,9 @@ export default function TrivoraMapNative({
     rideState === 'in_transit' ||
     rideState === 'driver_en_route' ||
     rideState === 'accepted';
-  const effectiveVariant: MapVariant = mapVariant ?? (isActiveRide ? 'liberty' : 'bright');
+  // Flat 'bright' by default: 'liberty' draws 3D buildings, which the app doesn't use (ride
+  // screens still tilt to ACTIVE_RIDE_PITCH, just without extruded buildings).
+  const effectiveVariant: MapVariant = mapVariant ?? 'bright';
   const effectiveMapStyle = mapStyleUrl ?? MAP_STYLES[effectiveVariant];
   const effectivePitch = pitch ?? (effectiveVariant === 'liberty' || isActiveRide ? ACTIVE_RIDE_PITCH : TOP_DOWN_PITCH);
 
@@ -414,11 +416,13 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   suggestedRouteTitle: {
+    fontFamily: FONT_FAMILY,
     fontSize: 10,
     fontWeight: '900',
     color: '#15803D',
   },
   suggestedRouteSub: {
+    fontFamily: FONT_FAMILY,
     fontSize: 10,
     color: COLORS.textSecondary,
     fontWeight: '500',
@@ -443,6 +447,7 @@ const styles = StyleSheet.create({
     ...SHADOWS.md,
   },
   todaPillText: {
+    fontFamily: FONT_FAMILY,
     color: '#FFFFFF',
     fontSize: 11,
     fontWeight: '800',

@@ -18,6 +18,10 @@ interface PinLocationSheetProps {
   mode?: 'pickup' | 'destination';
   /** Overrides the confirm button's label entirely (e.g. "Save Place") — takes precedence over mode. */
   confirmLabel?: string;
+  /** How a point is picked: 'tap' the map (default), or 'drag' the map under a fixed centre pin. */
+  interaction?: 'tap' | 'drag';
+  /** Trip estimate for the pinned point (e.g. "1.8 km · 6 min · ₱25.00 est."), when booking. */
+  estimate?: string | null;
 }
 
 /**
@@ -33,9 +37,13 @@ export default function PinLocationSheet({
   children,
   mode = 'destination',
   confirmLabel,
+  interaction = 'tap',
+  estimate,
 }: PinLocationSheetProps) {
   const insets = useSafeAreaInsets();
   const isPickup = mode === 'pickup';
+  const isDrag = interaction === 'drag';
+  const target = isPickup ? 'pick-up' : 'destination';
   const [panelHeight, setPanelHeight] = useState(180);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -70,7 +78,7 @@ export default function PinLocationSheet({
             <View style={styles.hintRow}>
               <Hand size={13} color={COLORS.textSecondary} />
               <Text style={styles.hint}>
-                {isPickup ? 'Tap the map to set your pick-up' : 'Tap the map to set your destination'}
+                {isDrag ? `Move the map to set your ${target}` : `Tap the map to set your ${target}`}
               </Text>
             </View>
           </View>
@@ -88,7 +96,7 @@ export default function PinLocationSheet({
         <MapFocusButton
           style={{ bottom: panelHeight + 16 }}
           onPress={onRecenter}
-          accessibilityLabel="Focus pick-up and destination"
+          accessibilityLabel={isDrag ? 'Center on the pin' : 'Focus pick-up and destination'}
           />
 
         {/* Floating bottom sheet panel */}
@@ -108,14 +116,17 @@ export default function PinLocationSheet({
                   <Text style={styles.destName} numberOfLines={2}>
                     {isResolving ? 'Resolving location...' : pinnedLocation.name || 'Selected location'}
                   </Text>
-                  {pinnedLocation.address ? (
-                    <Text style={styles.coords} numberOfLines={2}>
-                      {pinnedLocation.address} · {pinnedLocation.lat.toFixed(5)}, {pinnedLocation.lng.toFixed(5)}
-                    </Text>
+                  {/* Address only when it adds something to the name (often they're the same
+                      reverse-geocoded line); raw coordinates mean nothing to a passenger. */}
+                  {pinnedLocation.address && pinnedLocation.address !== pinnedLocation.name && !isResolving ? (
+                    <Text style={styles.coords} numberOfLines={2}>{pinnedLocation.address}</Text>
                   ) : null}
+                  {estimate && !isResolving ? <Text style={styles.estimate}>{estimate}</Text> : null}
                 </>
               ) : (
-                <Text style={styles.destPlaceholder}>No pin yet</Text>
+                <Text style={styles.destPlaceholder}>
+                  {isDrag ? `Move the map to set your ${target}` : 'No pin yet'}
+                </Text>
               )}
             </View>
           </View>
@@ -221,6 +232,12 @@ const styles = StyleSheet.create({
     ...TYPOGRAPHY.caption,
     color: COLORS.textSecondary,
     marginTop: 2,
+  },
+  estimate: {
+    ...TYPOGRAPHY.caption,
+    fontWeight: '600',
+    color: COLORS.primary,
+    marginTop: 6,
   },
   message: {
     ...TYPOGRAPHY.bodySmall,

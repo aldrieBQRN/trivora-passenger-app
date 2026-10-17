@@ -10,7 +10,8 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
 } from 'react-native';
-import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '../constants/theme';
+import { StatusBar } from 'expo-status-bar';
+import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '../constants/theme';
 import { calculateDistance } from '../constants/todaRoutes';
 import { searchPlaces, resolvePlaceCoordinates, PlaceSearchResult } from '../services/routingService';
 import { useSavedPlaces } from '../context/SavedPlacesContext';
@@ -30,7 +31,7 @@ import PinLocationModal from '../components/PinLocationModal';
 import FilterTabs from '../components/FilterTabs';
 import SavedPlacesScreen from './SavedPlacesScreen';
 import PlaceCategoryChips from '../components/PlaceCategoryChips';
-import ScreenHeader from '../components/ScreenHeader';
+import TabHeader from '../components/TabHeader';
 import { useNearbyPlaces } from '../hooks/useNearbyPlaces';
 import { getCategoryDefinition } from '../constants/placeCategories';
 
@@ -179,38 +180,44 @@ export default function DestinationSearchScreen({
   const handleSeeAllSavedPlaces = () => setShowSavedPlacesOverlay(true);
 
   const headerTitle = title ?? (isPickup ? 'Change Pick-up' : 'Where are you going?');
+  // Booking a ride: remind the passenger where the trip starts. Not shown when only picking a
+  // place (Add a Place) or changing the pick-up itself.
+  const headerSubtitle =
+    !isPickup && showPinRoute && currentLocation
+      ? `From ${currentLocation.name && currentLocation.name !== 'Current location' ? currentLocation.name : 'your current location'}`
+      : undefined;
 
   return (
-    <View style={[styles.container, { paddingTop: topInset }]}>
-      <ScreenHeader title={headerTitle} onBack={onBack} />
-
+    <View style={styles.container}>
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        {/* Search Input Box */}
-        <View style={styles.searchBar}>
-          <Search size={18} color={COLORS.textSecondary} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder={isPickup ? 'Search a pick-up location...' : 'Search destination in Nasugbu...'}
-            placeholderTextColor={COLORS.textSecondary}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            autoFocus={isPickup}
-            returnKeyType="search"
-          />
-          {searchQuery.length > 0 && (
-            <TouchableOpacity
-              onPress={() => setSearchQuery('')}
-              activeOpacity={0.7}
-              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-              accessibilityLabel="Clear search"
-            >
-              <X size={16} color={COLORS.textSecondary} />
-            </TouchableOpacity>
-          )}
-        </View>
+        {/* Navy header (same as Home's) with the search bar as the card on its curve */}
+        <TabHeader topInset={topInset} title={headerTitle} subtitle={headerSubtitle} onBack={onBack}>
+          <View style={styles.searchBar}>
+            <Search size={18} color={COLORS.textSecondary} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder={isPickup ? 'Search a pick-up location...' : 'Search destination in Nasugbu...'}
+              placeholderTextColor={COLORS.textSecondary}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              autoFocus={isPickup}
+              returnKeyType="search"
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity
+                onPress={() => setSearchQuery('')}
+                activeOpacity={0.7}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                accessibilityLabel="Clear search"
+              >
+                <X size={16} color={COLORS.textSecondary} />
+              </TouchableOpacity>
+            )}
+          </View>
+        </TabHeader>
 
         {isPickup && !isSearchMode && onUseCurrentLocation && (
           <TouchableOpacity
@@ -454,6 +461,8 @@ export default function DestinationSearchScreen({
           this layer sits over the root's status-bar padding. */}
       {showSavedPlacesOverlay && (
         <View style={[styles.savedPlacesOverlay, { paddingTop: topInset }]}>
+          {/* This layer covers the navy header without unmounting it, so set dark icons back. */}
+          <StatusBar style="dark" />
           <SavedPlacesScreen onBack={() => setShowSavedPlacesOverlay(false)} />
         </View>
       )}
@@ -472,18 +481,18 @@ const styles = StyleSheet.create({
     bottom: 0,
     backgroundColor: COLORS.background,
   },
+  // White card on the navy header's curve.
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.surfaceInput,
+    backgroundColor: COLORS.background,
     borderRadius: RADIUS.lg,
-    marginHorizontal: SPACING.lg,
-    marginTop: SPACING.md,
     paddingHorizontal: SPACING.md,
     height: 52,
     gap: 10,
     borderWidth: 1,
     borderColor: COLORS.border,
+    ...SHADOWS.card,
   },
   searchInput: {
     flex: 1,

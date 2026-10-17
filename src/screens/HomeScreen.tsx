@@ -1,8 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, LayoutChangeEvent, ActivityIndicator, Animated, Easing } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, LayoutChangeEvent, Animated, Easing } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '../constants/theme';
 import { useBooking } from '../context/BookingContext';
 import { useAuth } from '../context/AuthContext';
+import { useNetwork } from '../context/NetworkContext';
 import { Bell, Search, Home as HomeIcon, Briefcase, School, Bookmark, Plus, ChevronRight, ScanLine, MoreHorizontal, MapPin } from 'lucide-react-native';
 import Avatar from '../components/Avatar';
 import TrivoraMap from '../components/TrivoraMap';
@@ -34,6 +36,35 @@ const SAVED_PLACE_ICONS: Record<string, typeof HomeIcon> = {
 /** Saved places shown as one-tap shortcuts on Home; the rest stay one tap away under "More". */
 const MAX_SHORTCUTS = 3;
 
+/** Pulsing placeholder in the saved places strip's shape (shortcuts + "More"), shown on first load. */
+function SavedPlacesSkeleton() {
+  const pulse = useRef(new Animated.Value(0.45)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 650, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0.45, duration: 650, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
+
+  return (
+    <View style={styles.placesStrip} accessibilityLabel="Loading saved places">
+      {Array.from({ length: MAX_SHORTCUTS + 1 }, (_, i) => (
+        <React.Fragment key={i}>
+          {i > 0 && <View style={styles.placeDivider} />}
+          <Animated.View style={[styles.placeCell, { opacity: pulse }]}>
+            <View style={styles.skeletonIcon} />
+            <View style={styles.skeletonLabel} />
+          </Animated.View>
+        </React.Fragment>
+      ))}
+    </View>
+  );
+}
+
 export default function HomeScreen({
   topInset = 0,
   onOpenNotifications,
@@ -50,6 +81,7 @@ export default function HomeScreen({
     retryLocation,
   } = useBooking();
   const { user } = useAuth();
+  const { isConnected } = useNetwork();
   const { savedPlaces, isLoading: isLoadingSavedPlaces, addSavedPlace } = useSavedPlaces();
   const { showToast } = useToast();
   const { openScanner, ride: qrRide, resumeRide } = useQrRide();
@@ -93,6 +125,8 @@ export default function HomeScreen({
   // visible area between the header bar and the action sheet, not the full screen height.
   const [headerHeight, setHeaderHeight] = useState(0);
   const [sheetHeight, setSheetHeight] = useState(0);
+  // The navy header background ends halfway down the ride card, so the card straddles its curve.
+  const [rideCardHeight, setRideCardHeight] = useState(0);
   const handleHeaderLayout = (e: LayoutChangeEvent) => setHeaderHeight(e.nativeEvent.layout.height);
   const handleSheetLayout = (e: LayoutChangeEvent) => setSheetHeight(e.nativeEvent.layout.height);
 
@@ -129,6 +163,8 @@ export default function HomeScreen({
 
   return (
     <View style={styles.container}>
+      {/* Light status-bar icons over the navy header (Home unmounts on tab change / picker open). */}
+      <StatusBar style="light" />
       {/* Full-bleed map — the screen's primary surface, not a bounded canvas */}
       <TrivoraMap
         pickup={pickup}
@@ -145,74 +181,52 @@ export default function HomeScreen({
         <MapLocationNotice isLocating={isLocatingPickup} error={locationError} onRetry={retryLocation} top={headerHeight + 8} />
       )}
 
-      {/* Header bar — same structure as the Driver app's Home header: an opaque bar floating
-          over the full-bleed map with identity/greeting on the left and alerts on the right,
-          instead of two disconnected floating icons with no text. */}
-      <View style={[styles.header, { paddingTop: topInset + SPACING.sm }]} onLayout={handleHeaderLayout}>
-        <TouchableOpacity onPress={onOpenProfile} activeOpacity={0.8} accessibilityLabel="Profile">
-          {/* "driver" tone is the component's solid-navy/white-initials treatment — the same
-              default appearance Driver Home uses for its own avatar. Using it here for the
-              passenger's own avatar (not the tinted "passenger" tone used for someone else's
-              avatar elsewhere) matches Driver's default-profile look exactly. */}
-          <Avatar name={user?.name || 'Passenger'} imageUri={user?.avatarUrl} tone="driver" size={40} />
-        </TouchableOpacity>
+      {/* Header — a brand-navy panel floating over the full-bleed map: a greeting with alerts + the passenger's profile, then the ride card (Where to? / Scan to Ride).
+          "Where to?" is the one booking entry point: it opens the destination picker (search,
+          saved, suggested, or pin on map), and every path lands on the same Destination & Route
+          screen. */}
+      <View
+        style={[styles.header, { paddingTop: topInset + SPACING.sm }]}
+        onLayout={handleHeaderLayout}
+        pointerEvents="box-none"
+      >
+        <View style={[styles.headerBg, { bottom: rideCardHeight / 2 }]} pointerEvents="none" />
+        <View style={styles.headerRow}>
+          <View style={styles.headerTextCol}>
+            <Text style={styles.headerGreeting} numberOfLines={1}>{greeting}, {firstName}</Text>
+            {/* Where the passenger is right now — the real reverse-geocoded GPS address, never
+                `pickup.name` (a manual/swapped pickup is not where the passenger is). */}
+            <View style={styles.headerLocationRow}>
+              <MapPin size={12} color={COLORS.textInverse} strokeWidth={2.4} />
+              <Text style={styles.headerLocation} numberOfLines={1}>
+                {locationKnown ? currentLocationLabel ?? 'Locating your position…' : 'Finding your location…'}
+              </Text>
+            </View>
+          </View>
 
-        <View style={styles.headerTextCol}>
-          <Text style={styles.headerTitle} numberOfLines={1}>{greeting}, {firstName}</Text>
-          {/* Where the passenger is right now — the real reverse-geocoded GPS address, never a
-              placeholder town name, and never `pickup.name` (a manual/swapped pickup is not where
-              the passenger is). */}
-          <View style={styles.headerLocationRow}>
-            <MapPin size={12} color={locationKnown ? COLORS.primary : COLORS.textMuted} strokeWidth={2.4} />
-            <Text style={styles.headerLocation} numberOfLines={1}>
-              {locationKnown ? currentLocationLabel ?? 'Locating your position…' : 'Finding your location…'}
-            </Text>
+          <View style={styles.headerActions}>
+            <FloatingIconButton
+              size={34}
+              onPress={handleOpenNotifications}
+              hasBadge={unreadCount > 0}
+              accessibilityLabel="Notifications"
+              style={styles.headerIconBtn}
+            >
+              <Bell size={15} color={COLORS.primary} />
+            </FloatingIconButton>
+            <TouchableOpacity onPress={onOpenProfile} activeOpacity={0.8} accessibilityLabel="Profile">
+              {/* "passenger" tone = navy initials; the header style makes its fill solid white like the bell. */}
+              <View>
+                <Avatar name={user?.name || 'Passenger'} imageUri={user?.avatarUrl} tone="passenger" size={40} style={styles.headerAvatar} />
+                {/* Connection status at a glance — same dot as the Driver app's avatar. */}
+                <View style={[styles.avatarDot, isConnected ? styles.avatarDotOnline : styles.avatarDotOffline]} />
+              </View>
+            </TouchableOpacity>
           </View>
         </View>
 
-        <FloatingIconButton
-          size={40}
-          onPress={handleOpenNotifications}
-          hasBadge={unreadCount > 0}
-          accessibilityLabel="Notifications"
-          style={styles.headerIconBtn}
-        >
-          <Bell size={17} color={COLORS.textPrimary} />
-        </FloatingIconButton>
-      </View>
-
-      {/* One booking entry point: "Where to?" opens the destination picker (search, saved,
-          suggested, or pin on map), and every path lands on the same Destination & Route screen.
-          The saved places below are one-tap shortcuts into that same flow — real saved places
-          only, never invented ones. */}
-      <Animated.View
-        style={[
-          styles.sheet,
-          { opacity: enter, transform: [{ translateY: enter.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) }] },
-        ]}
-        onLayout={handleSheetLayout}
-      >
-        {activeQrRide && (
-          <TouchableOpacity
-            style={styles.activeRideBar}
-            onPress={resumeRide}
-            activeOpacity={0.8}
-            accessibilityRole="button"
-            accessibilityLabel={`Active Ride. ${activeQrRideStatus}. Open ride.`}
-          >
-            <View style={styles.activeRideIcon}>
-              <TricycleIcon size={20} color={COLORS.textInverse} />
-            </View>
-            <View style={styles.whereToTextCol}>
-              <Text style={styles.activeRideTitle}>Active Ride</Text>
-              <Text style={styles.activeRideStatus} numberOfLines={1}>{activeQrRideStatus}</Text>
-            </View>
-            <ChevronRight size={18} color={COLORS.textInverse} />
-          </TouchableOpacity>
-        )}
-
         {/* Both ways to ride in one grouped card: "Where to?" leads, Scan to Ride sits below it. */}
-        <View style={styles.rideCard}>
+        <View style={styles.rideCard} onLayout={(e) => setRideCardHeight(e.nativeEvent.layout.height)}>
         <TouchableOpacity
           style={[styles.whereTo, !locationKnown && styles.disabled]}
           onPress={() => openPicker('suggested')}
@@ -248,11 +262,40 @@ export default function HomeScreen({
           </View>
           <View style={styles.whereToTextCol}>
             <Text style={styles.scanTitle}>Scan to Ride</Text>
-            <Text style={styles.whereToSubtitle} numberOfLines={1}>Already at a tricycle? Scan its QR to join.</Text>
+            <Text style={styles.whereToSubtitle} numberOfLines={1}>Scan a tricycle's QR to join</Text>
           </View>
           <ChevronRight size={18} color={COLORS.textMuted} />
         </TouchableOpacity>
         </View>
+      </View>
+
+      {/* Saved places are one-tap shortcuts into the same flow as "Where to?" — real saved places
+          only, never invented ones. */}
+      <Animated.View
+        style={[
+          styles.sheet,
+          { opacity: enter, transform: [{ translateY: enter.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) }] },
+        ]}
+        onLayout={handleSheetLayout}
+      >
+        {activeQrRide && (
+          <TouchableOpacity
+            style={styles.activeRideBar}
+            onPress={resumeRide}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel={`Active Ride. ${activeQrRideStatus}. Open ride.`}
+          >
+            <View style={styles.activeRideIcon}>
+              <TricycleIcon size={20} color={COLORS.textInverse} />
+            </View>
+            <View style={styles.whereToTextCol}>
+              <Text style={styles.activeRideTitle}>Active Ride</Text>
+              <Text style={styles.activeRideStatus} numberOfLines={1}>{activeQrRideStatus}</Text>
+            </View>
+            <ChevronRight size={18} color={COLORS.textInverse} />
+          </TouchableOpacity>
+        )}
 
         <View style={styles.savedSection}>
           <View style={styles.sectionHeader}>
@@ -271,10 +314,7 @@ export default function HomeScreen({
             )}
           </View>
           {isLoadingSavedPlaces && savedPlaces.length === 0 ? (
-            <View style={styles.savedStatusRow}>
-              <ActivityIndicator size="small" color={COLORS.textMuted} />
-              <Text style={styles.savedStatusText}>Loading saved places…</Text>
-            </View>
+            <SavedPlacesSkeleton />
           ) : savedPlaces.length === 0 ? (
             <TouchableOpacity
               style={styles.addPlaceRow}
@@ -353,32 +393,68 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     zIndex: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: COLORS.background,
-    // Floats over the map as a rounded card instead of a bar with a hard bottom rule.
+    gap: SPACING.md,
+    paddingHorizontal: SPACING.md,
+  },
+  // Navy panel behind the header, floating over the map with rounded bottom corners; its bottom
+  // edge is set at runtime to the ride card's vertical centre.
+  headerBg: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: COLORS.primary,
     borderBottomLeftRadius: RADIUS.xxl,
     borderBottomRightRadius: RADIUS.xxl,
-    paddingHorizontal: SPACING.md,
-    paddingBottom: SPACING.sm + 6,
     ...SHADOWS.md,
+    // No Android elevation: it would lift this layer above the logo row (elevation outranks
+    // render order there). The iOS shadow still applies.
+    elevation: 0,
   },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+  },
+  // Border on the avatar itself (not a wrapper ring), so no seam shows between two circles.
+  headerAvatar: {
+    backgroundColor: COLORS.background,
+    borderWidth: 2,
+    borderColor: COLORS.background,
+  },
+  avatarDot: {
+    position: 'absolute',
+    right: -1,
+    bottom: -1,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: COLORS.primary, // cut out against the navy header
+  },
+  avatarDotOnline: { backgroundColor: COLORS.success },
+  avatarDotOffline: { backgroundColor: COLORS.textMuted },
+  // Solid white on the navy header.
   headerIconBtn: {
-    backgroundColor: COLORS.backgroundSubtle,
-    borderWidth: 1,
-    borderColor: COLORS.borderLight,
+    backgroundColor: COLORS.background,
+    borderWidth: 0,
     shadowOpacity: 0,
     elevation: 0,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
   },
   headerTextCol: {
     flex: 1,
     minWidth: 0,
   },
-  headerTitle: {
+  headerGreeting: {
     ...TYPOGRAPHY.h3,
     fontWeight: '700',
-    color: COLORS.textPrimary,
+    color: COLORS.textInverse,
   },
   headerLocationRow: {
     flexDirection: 'row',
@@ -388,7 +464,7 @@ const styles = StyleSheet.create({
   },
   headerLocation: {
     ...TYPOGRAPHY.caption,
-    color: COLORS.textSecondary,
+    color: 'rgba(255,255,255,0.75)',
     flexShrink: 1,
   },
   sheet: {
@@ -551,15 +627,18 @@ const styles = StyleSheet.create({
   placeLabelMuted: {
     color: COLORS.textSecondary,
   },
-  savedStatusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.sm,
-    height: 44,
+  skeletonIcon: {
+    width: 18,
+    height: 18,
+    borderRadius: 5,
+    backgroundColor: COLORS.border,
   },
-  savedStatusText: {
-    ...TYPOGRAPHY.bodySmall,
-    color: COLORS.textSecondary,
+  skeletonLabel: {
+    width: '60%',
+    height: 10,
+    marginVertical: 3,
+    borderRadius: 5,
+    backgroundColor: COLORS.border,
   },
   addPlaceRow: {
     flexDirection: 'row',

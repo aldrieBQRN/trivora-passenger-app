@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import type { LucideIcon } from 'lucide-react-native';
-import { COLORS, RADIUS, SPACING } from '../constants/theme';
+import { COLORS, RADIUS, SPACING, FONT_FAMILY } from '../constants/theme';
 
 interface EmptyStateProps {
   icon: LucideIcon;
@@ -36,11 +36,13 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   title: {
+    fontFamily: FONT_FAMILY,
     fontSize: 15,
     fontWeight: '700',
     color: COLORS.textPrimary,
   },
   subtitle: {
+    fontFamily: FONT_FAMILY,
     fontSize: 12,
     color: COLORS.textSecondary,
     textAlign: 'center',
@@ -53,6 +55,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
   },
   actionText: {
+    fontFamily: FONT_FAMILY,
     fontSize: 13,
     fontWeight: '700',
     color: '#FFFFFF',

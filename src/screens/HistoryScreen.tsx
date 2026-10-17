@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, SectionList, TouchableOpacity } from 'react-native';
-import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '../constants/theme';
+import { COLORS, RADIUS, SPACING, TYPOGRAPHY, FONT_FAMILY } from '../constants/theme';
 import { useBooking } from '../context/BookingContext';
 import { HistoryItem, TripReceipt } from '../types';
 import { ChevronRight, Receipt, Star } from 'lucide-react-native';
@@ -8,10 +8,12 @@ import RouteSummaryStrip from '../components/RouteSummaryStrip';
 import { calculateFare } from '../constants/todaRoutes';
 import TripReceiptScreen from './TripReceiptScreen';
 import EmptyState from '../components/EmptyState';
-import ScreenHeader from '../components/ScreenHeader';
+import TabHeader from '../components/TabHeader';
 import FilterTabs from '../components/FilterTabs';
 
 interface HistoryScreenProps {
+  /** Status-bar height — this tab draws its navy header up underneath it. */
+  topInset?: number;
   onBackToMap?: () => void;
   /** Opens this booking's e-receipt once it is in the list (a tapped "Trip completed" notification). */
   focusBookingId?: number | string | null;
@@ -26,7 +28,7 @@ const FILTER_OPTIONS = [
   { key: 'Cancelled', label: 'Cancelled' },
 ];
 
-export default function HistoryScreen({ onBackToMap: _onBackToMap, focusBookingId = null, onFocusHandled }: HistoryScreenProps) {
+export default function HistoryScreen({ topInset = 0, onBackToMap: _onBackToMap, focusBookingId = null, onFocusHandled }: HistoryScreenProps) {
   const { historyList, startRatingBooking, refreshHistory } = useBooking();
   const [activeFilter, setActiveFilter] = useState<FilterTab>('All');
   const [selectedReceipt, setSelectedReceipt] = useState<TripReceipt | null>(null);
@@ -148,21 +150,33 @@ export default function HistoryScreen({ onBackToMap: _onBackToMap, focusBookingI
   };
 
   if (selectedReceipt) {
-    return <TripReceiptScreen receipt={selectedReceipt} onBack={() => setSelectedReceipt(null)} />;
+    // The receipt is a plain page: it needs its own status-bar gap since this tab runs under it.
+    return (
+      <View style={[styles.container, { paddingTop: topInset }]}>
+        <TripReceiptScreen receipt={selectedReceipt} onBack={() => setSelectedReceipt(null)} />
+      </View>
+    );
   }
+
+  // Header summary: every ride on record, and what was actually paid (completed rides only).
+  const completedTotal = historyList.reduce((sum, h) => (h.status === 'Completed' ? sum + h.fare : sum), 0);
+  const historySummary = historyList.length
+    ? `${historyList.length} ${historyList.length === 1 ? 'ride' : 'rides'} · ₱${completedTotal.toFixed(2)} spent`
+    : undefined;
 
   return (
     <View style={styles.container}>
-      {/* Plain title-only header, same treatment as the Driver app's inner pages — no
-          subtitle or notification icon; that content belongs to Home, not a secondary page. */}
-      <ScreenHeader title="Ride History" />
-
-      {/* Filter — same segmented-tab design as the Driver app's Earnings screen */}
-      <FilterTabs
-        options={FILTER_OPTIONS}
-        value={activeFilter}
-        onChange={(key) => setActiveFilter(key as FilterTab)}
-      />
+      {/* Navy tab header (same as Home's) with a ride summary; no notification icon — that
+          belongs to Home. The filter sits on the header's curve. */}
+      <TabHeader topInset={topInset} title="Ride History" subtitle={historySummary}>
+        {/* Filter — same segmented-tab design as the Driver app's Earnings screen */}
+        <FilterTabs
+          options={FILTER_OPTIONS}
+          value={activeFilter}
+          onChange={(key) => setActiveFilter(key as FilterTab)}
+          variant="floating"
+        />
+      </TabHeader>
 
       {/* Ride History List — grouped by date instead of repeating it per card */}
       <SectionList
@@ -248,6 +262,7 @@ const styles = StyleSheet.create({
     borderColor: COLORS.dangerBorder,
   },
   statusText: {
+    fontFamily: FONT_FAMILY,
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.2,

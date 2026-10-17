@@ -42,6 +42,10 @@ import QrRideScreen from './src/screens/QrRideScreen';
 
 import { Home, History, User } from 'lucide-react-native';
 import CurvedTabBar, { CurvedTab } from './src/components/CurvedTabBar';
+import { registerWebFonts } from './src/utils/webFonts';
+
+// Web: load the app font in the browser (native builds bundle it via app.json).
+registerWebFonts();
 
 type TabKey = 'home' | 'trips' | 'profile';
 
@@ -182,7 +186,7 @@ function PassengerAppNavigator() {
       return <QrScanScreen topInset={safeTop} />;
     }
     if (qrStage === 'setup') {
-      return <QrRideSetupScreen />;
+      return <QrRideSetupScreen topInset={safeTop} />;
     }
     if (qrStage === 'ride') {
       return <QrRideScreen topInset={safeTop} bottomInset={safeBottom} />;
@@ -232,6 +236,7 @@ function PassengerAppNavigator() {
     if (activeTab === 'trips') {
       return (
         <HistoryScreen
+          topInset={safeTop}
           onBackToMap={() => setActiveTab('home')}
           focusBookingId={focusReceiptBookingId}
           onFocusHandled={() => setFocusReceiptBookingId(null)}
@@ -240,7 +245,7 @@ function PassengerAppNavigator() {
     }
 
     if (activeTab === 'profile') {
-      return <ProfileScreen />;
+      return <ProfileScreen topInset={safeTop} />;
     }
 
     return null;
@@ -277,11 +282,18 @@ function PassengerAppNavigator() {
   // breaking the "photo fills the entire screen" effect.
   const isSplashOrOnboarding = isRestoring || (!hasCompletedOnboarding && !isAuthenticated);
 
+  // Ride History and Profile draw their navy TabHeader up under the status bar (like Home) and
+  // pad their own top inset.
+  const isTabHeaderScreen = isTabVisible && (activeTab === 'trips' || activeTab === 'profile');
+  // Scan to Ride setup pads its own top inset so the destination picker it opens can draw its navy
+  // header under the status bar.
+  const ownsTopInset = isTabHeaderScreen || (isAuthenticated && qrStage === 'setup');
+
   return (
     <View
       style={[
         styles.rootContainer,
-        { paddingTop: isFullBleedMapScreen || isSplashOrOnboarding ? 0 : safeTop },
+        { paddingTop: isFullBleedMapScreen || isSplashOrOnboarding || ownsTopInset ? 0 : safeTop },
       ]}
     >
       <StatusBar style={isSplashOrOnboarding || (isAuthenticated && qrStage === 'scan') ? 'light' : 'dark'} backgroundColor={COLORS.background} />

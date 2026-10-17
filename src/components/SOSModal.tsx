@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Modal } from 'react-native';
 import { ShieldAlert, PhoneCall } from 'lucide-react-native';
-import { COLORS, RADIUS, SHADOWS, SPACING } from '../constants/theme';
+import { COLORS, RADIUS, SHADOWS, SPACING, FONT_FAMILY } from '../constants/theme';
 import { DriverProfile } from '../types';
 import { useToast } from './Toast';
 
@@ -105,6 +105,7 @@ const styles = StyleSheet.create({
     borderColor: COLORS.dangerBorder,
   },
   title: {
+    fontFamily: FONT_FAMILY,
     fontSize: 16,
     fontWeight: '700',
     color: COLORS.danger,
@@ -112,6 +113,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   subtitle: {
+    fontFamily: FONT_FAMILY,
     fontSize: 12,
     color: COLORS.textSecondary,
     textAlign: 'center',
@@ -126,6 +128,7 @@ const styles = StyleSheet.create({
     borderLeftColor: COLORS.danger,
   },
   detailItem: {
+    fontFamily: FONT_FAMILY,
     fontSize: 12,
     color: COLORS.textPrimary,
     fontWeight: '600',
@@ -144,6 +147,7 @@ const styles = StyleSheet.create({
     borderRadius: RADIUS.lg,
   },
   callBtnText: {
+    fontFamily: FONT_FAMILY,
     color: '#FFFFFF',
     fontWeight: '700',
     fontSize: 14,
@@ -160,6 +164,7 @@ const styles = StyleSheet.create({
     borderRadius: RADIUS.lg,
   },
   tmoBtnText: {
+    fontFamily: FONT_FAMILY,
     color: COLORS.primary,
     fontWeight: '700',
     fontSize: 13,
@@ -169,6 +174,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   dismissText: {
+    fontFamily: FONT_FAMILY,
     color: COLORS.textMuted,
     fontSize: 12,
     fontWeight: '600',

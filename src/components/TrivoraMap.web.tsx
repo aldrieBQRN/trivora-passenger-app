@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { COLORS, RADIUS, SHADOWS } from '../constants/theme';
+import { COLORS, RADIUS, SHADOWS, FONT_FAMILY } from '../constants/theme';
 import { Shield, ChevronRight, Zap } from 'lucide-react-native';
 import { TODA_ZONES } from '../constants/todaRoutes';
 import { fetchTodaZones } from '../services/api';
@@ -138,7 +138,9 @@ export default function TrivoraMapWeb({
   const isFallbackRoute = routeSource === 'fallback';
   const isFollowing = (isEnRoute || isInTransit) && !!driverLocation;
 
-  const effectiveVariant: MapVariant = mapVariant ?? (isActiveRide ? 'liberty' : 'bright');
+  // Flat 'bright' by default: 'liberty' draws 3D buildings, which the app doesn't use (ride
+  // screens still tilt to ACTIVE_RIDE_PITCH, just without extruded buildings).
+  const effectiveVariant: MapVariant = mapVariant ?? 'bright';
   const effectiveMapStyle = mapStyleUrl ?? MAP_STYLES[effectiveVariant];
   const effectivePitch = pitch ?? (effectiveVariant === 'liberty' || isActiveRide ? ACTIVE_RIDE_PITCH : TOP_DOWN_PITCH);
 
@@ -544,11 +546,13 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   suggestedRouteTitle: {
+    fontFamily: FONT_FAMILY,
     fontSize: 10,
     fontWeight: '900',
     color: '#15803D',
   },
   suggestedRouteSub: {
+    fontFamily: FONT_FAMILY,
     fontSize: 10,
     color: COLORS.textSecondary,
     fontWeight: '500',
@@ -570,6 +574,7 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   todaPillText: {
+    fontFamily: FONT_FAMILY,
     color: '#FFFFFF',
     fontSize: 11,
     fontWeight: '800',

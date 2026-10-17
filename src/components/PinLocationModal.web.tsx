@@ -39,6 +39,9 @@ function PinLocationModalContent({
     pinnedLocation,
     routeCoordinates,
     routeSource,
+    distanceKm,
+    durationMinutes,
+    fareTotal,
     isResolving,
     pickPoint,
     awaitingLocation,
@@ -266,6 +269,11 @@ function PinLocationModalContent({
       }}
       mode={mode}
       confirmLabel={confirmLabel}
+      estimate={
+        otherEndpoint && routeCoordinates.length > 0
+          ? `${distanceKm.toFixed(1)} km · ${Math.max(1, Math.round(durationMinutes))} min · ₱${fareTotal.toFixed(2)} est.`
+          : null
+      }
     >
       <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'absolute', inset: 0 }} />
     </PinLocationSheet>

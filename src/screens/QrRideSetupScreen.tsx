@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
 import { MapPin, ChevronRight, Minus, Plus, AlertCircle, RefreshCw, ScanLine, Banknote, Smartphone } from 'lucide-react-native';
-import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '../constants/theme';
+import { COLORS, RADIUS, SPACING, TYPOGRAPHY, FONT_FAMILY } from '../constants/theme';
 import { useQrRide, QR_RIDE_POLL_MS } from '../context/QrRideContext';
 import { useBooking } from '../context/BookingContext';
 import { useCurrentLocation } from '../hooks/useCurrentLocation';
@@ -35,7 +35,12 @@ const REASON_TITLES: Record<string, string> = {
  * + party size, the server's fare quote, and Join Ride. There is no pick-up choice — the passenger
  * is at the tricycle and the server sets the pick-up point.
  */
-export default function QrRideSetupScreen() {
+interface QrRideSetupScreenProps {
+  /** Status-bar height — this screen pads it itself so its destination picker can run under it. */
+  topInset?: number;
+}
+
+export default function QrRideSetupScreen({ topInset = 0 }: QrRideSetupScreenProps) {
   const {
     scan, scanError, isResolving, quote, quoteError, isQuoting, quoteSignature, joinError, isJoining,
     closeQr, openScanner, refreshScan, requestQuote, clearQuote, joinRide,
@@ -146,7 +151,7 @@ export default function QrRideSetupScreen() {
   // ---------------------------------------------------------------- loading / hard errors
   if (isResolving && !scan) {
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, { paddingTop: topInset }]}>
         <ScreenHeader title="Scan to Ride" onBack={closeQr} />
         <View style={styles.centerState}>
           <ActivityIndicator color={COLORS.primary} />
@@ -159,7 +164,7 @@ export default function QrRideSetupScreen() {
   if (scanError || !scan) {
     const code = scanError?.code || 'invalid_qr';
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, { paddingTop: topInset }]}>
         <ScreenHeader title="Scan to Ride" onBack={closeQr} />
         <View style={styles.centerState}>
           <View style={styles.stateIcon}><AlertCircle size={26} color={COLORS.dangerDark} /></View>
@@ -183,6 +188,7 @@ export default function QrRideSetupScreen() {
   if (showPicker) {
     return (
       <DestinationSearchScreen
+        topInset={topInset}
         onBack={() => setShowPicker(false)}
         onSelect={(dest) => { setDestination(dest); setShowPicker(false); }}
         currentLocation={currentLat != null && currentLng != null ? { name: 'Current location', lat: currentLat, lng: currentLng } : undefined}
@@ -191,7 +197,7 @@ export default function QrRideSetupScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingTop: topInset }]}>
       <ScreenHeader title="Scan to Ride" onBack={closeQr} />
 
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
@@ -493,7 +499,7 @@ const styles = StyleSheet.create({
   routeTextCol: { flex: 1, paddingVertical: SPACING.sm },
   caption: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary },
   value: { ...TYPOGRAPHY.bodyLarge, color: COLORS.textPrimary, marginTop: 2 },
-  placeholder: { color: COLORS.textMuted, fontWeight: '400' },
+  placeholder: { fontFamily: FONT_FAMILY, color: COLORS.textMuted, fontWeight: '400' },
 
   partyRow: { flexDirection: 'row', alignItems: 'center', minHeight: 64, gap: 12 },
   stepper: { flexDirection: 'row', alignItems: 'center', gap: 14 },

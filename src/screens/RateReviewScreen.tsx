@@ -9,7 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '../constants/theme';
+import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY, FONT_FAMILY } from '../constants/theme';
 import { useBooking } from '../context/BookingContext';
 import { ArrowLeft, Star } from 'lucide-react-native';
 import Avatar from '../components/Avatar';
@@ -201,6 +201,7 @@ const styles = StyleSheet.create({
     borderColor: COLORS.primary,
   },
   avatarEmoji: {
+    fontFamily: FONT_FAMILY,
     fontSize: 24,
   },
   driverMetaCol: {
@@ -253,6 +254,7 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
   },
   chipTextSelected: {
+    fontFamily: FONT_FAMILY,
     color: COLORS.primary,
     fontWeight: '700',
   },

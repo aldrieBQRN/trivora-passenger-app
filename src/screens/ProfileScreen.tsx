@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
-import { COLORS, RADIUS, SPACING, BUTTONS, TYPOGRAPHY } from '../constants/theme';
+import { COLORS, RADIUS, SHADOWS, SPACING, BUTTONS, TYPOGRAPHY } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { UserProfile } from '../types';
 import { passengerApi, parseEmergencyContact } from '../services/api';
@@ -19,7 +19,9 @@ import {
 } from 'lucide-react-native';
 import EditableAvatar from '../components/EditableAvatar';
 import EditProfileModal from '../components/EditProfileModal';
+import EmailCodeModal from '../components/EmailCodeModal';
 import SavedPlacesScreen from './SavedPlacesScreen';
+import TabHeader from '../components/TabHeader';
 
 interface MenuItem {
   key: string;
@@ -32,11 +34,20 @@ interface MenuItem {
   rows: { label: string; value: string }[];
 }
 
-export default function ProfileScreen() {
+interface ProfileScreenProps {
+  /** Status-bar height — this tab draws its navy header up underneath it. */
+  topInset?: number;
+}
+
+export default function ProfileScreen({ topInset = 0 }: ProfileScreenProps) {
   const { user, logout, updateProfile, refreshProfile } = useAuth();
   const { showToast } = useToast();
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
+  // Email change: the new address waits here until the code sent to it is confirmed.
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
+  const [showEmailCode, setShowEmailCode] = useState(false);
+  const [emailCodeResendAfter, setEmailCodeResendAfter] = useState(60);
   const [showSavedPlaces, setShowSavedPlaces] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
@@ -52,7 +63,12 @@ export default function ProfileScreen() {
   }, []);
 
   if (showSavedPlaces) {
-    return <SavedPlacesScreen onBack={() => setShowSavedPlaces(false)} />;
+    // A plain page: it needs its own status-bar gap since this tab runs under it.
+    return (
+      <View style={[styles.container, { paddingTop: topInset }]}>
+        <SavedPlacesScreen onBack={() => setShowSavedPlaces(false)} />
+      </View>
+    );
   }
 
   const memberSinceLabel = user?.memberSince
@@ -112,29 +128,62 @@ export default function ProfileScreen() {
     setExpandedKey((prev) => (prev === key ? null : key));
   };
 
-  /** Returns false when the save failed, so the Edit Profile sheet stays open. */
+  /**
+   * Saves Edit Profile to the server (the screen refetches the profile on open, so anything only
+   * kept locally would vanish). A new email is not saved here: a code is sent to the new address
+   * and the email changes only once that code is confirmed (EmailCodeModal below).
+   * Returns false when the save failed, so the Edit Profile sheet stays open.
+   */
   const handleSaveProfile = async (fields: Partial<UserProfile>): Promise<boolean> => {
-    // Name/email/mobile are applied optimistically to local state, same as before this fix —
-    // that part of Edit Profile was never reported broken. Emergency Contact is the one field
-    // with no backend persistence at all, so it's saved through the API here and reconciled with
-    // whatever the backend actually stored, rather than just trusting what was typed.
-    updateProfile(fields);
+    const newEmail = fields.email?.trim().toLowerCase();
+    const emailChanged = !!newEmail && newEmail !== (user?.email || '').trim().toLowerCase();
 
-    if (fields.emergencyContact) {
+    // Send the code first: if the new email is refused (taken, invalid), nothing is saved.
+    if (emailChanged) {
       try {
-        const res: any = await passengerApi.updateProfile({
-          emergency_contact_name: fields.emergencyContact.name,
-          emergency_contact_phone: fields.emergencyContact.phone,
-        });
-        updateProfile({ emergencyContact: parseEmergencyContact(res?.user?.emergency_contact) });
+        const res = await passengerApi.sendEmailChangeCode(newEmail);
+        setEmailCodeResendAfter(res?.resend_after_seconds ?? 60);
       } catch (err: any) {
-        showToast(err?.message || 'Could not save your emergency contact. Please try again.', 'info');
+        showToast(err?.message || 'Could not send a code to that email. Please try again.', 'info');
         return false;
       }
     }
 
-    showToast('Profile updated');
+    try {
+      const res: any = await passengerApi.updateProfile({
+        name: fields.name,
+        mobile_number: fields.mobile,
+        emergency_contact_name: fields.emergencyContact?.name,
+        emergency_contact_phone: fields.emergencyContact?.phone,
+      });
+      updateProfile({
+        name: res?.user?.name ?? fields.name,
+        mobile: res?.user?.mobile_number ?? fields.mobile,
+        emergencyContact: parseEmergencyContact(res?.user?.emergency_contact),
+      });
+    } catch (err: any) {
+      showToast(err?.message || 'Could not save your profile. Please try again.', 'info');
+      return false;
+    }
+
+    if (emailChanged) {
+      setPendingEmail(newEmail);
+      // Opened once the Edit Profile sheet has closed — iOS can't present a modal while
+      // another is still animating out.
+      setTimeout(() => setShowEmailCode(true), 400);
+    } else {
+      showToast('Profile updated');
+    }
     return true;
+  };
+
+  const handleVerifyEmailChange = async (code: string) => {
+    if (!pendingEmail) return;
+    const res = await passengerApi.verifyEmailChange(pendingEmail, code); // throws -> shown in the modal
+    updateProfile({ email: res?.user?.email ?? pendingEmail });
+    setShowEmailCode(false);
+    setPendingEmail(null);
+    showToast('Email updated');
   };
 
   const handleLogoutPress = () => {
@@ -196,55 +245,58 @@ export default function ProfileScreen() {
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Identity Header — an asymmetric contact-card layout (avatar beside identity, corner
-            edit action) rather than a centered stack, with a divided stat row for rating/rides
-            matching the same visual language used for key numbers elsewhere in the app. */}
-        <View style={styles.header}>
-          <View style={styles.headerTopRow}>
-            {/* tone="driver" here is deliberate, not a typo — same reasoning as HomeScreen's own
-                avatar: "driver" is this app's solid/default-profile look (matches the Driver
-                app's own Profile page exactly), while the lighter "passenger" tint is reserved
-                for showing someone else as a passenger. This is the passenger's own avatar. */}
-            <EditableAvatar
-              name={user?.name || 'Passenger'}
-              imageUri={user?.avatarUrl}
-              tone="driver"
-              size={60}
-              onPhotoChanged={(url) => updateProfile({ avatarUrl: url || undefined })}
-            />
+        {/* Navy tab header (same as Home's); the identity card sits on its curve. */}
+        <TabHeader topInset={topInset} title="Profile">
+          {/* Identity Header — an asymmetric contact-card layout (avatar beside identity, corner
+              edit action) rather than a centered stack, with a divided stat row for rating/rides
+              matching the same visual language used for key numbers elsewhere in the app. */}
+          <View style={styles.header}>
+            <View style={styles.headerTopRow}>
+              {/* tone="driver" here is deliberate, not a typo — same reasoning as HomeScreen's own
+                  avatar: "driver" is this app's solid/default-profile look (matches the Driver
+                  app's own Profile page exactly), while the lighter "passenger" tint is reserved
+                  for showing someone else as a passenger. This is the passenger's own avatar. */}
+              <EditableAvatar
+                name={user?.name || 'Passenger'}
+                imageUri={user?.avatarUrl}
+                tone="driver"
+                size={60}
+                onPhotoChanged={(url) => updateProfile({ avatarUrl: url || undefined })}
+              />
 
-            <View style={styles.identityCol}>
-              <Text style={styles.profileName} numberOfLines={1}>{user?.name || 'Passenger'}</Text>
-              <View style={styles.phoneRow}>
-                <Phone size={12} color={COLORS.textMuted} />
-                <Text style={styles.profilePhone} numberOfLines={1}>{user?.mobile || '—'}</Text>
+              <View style={styles.identityCol}>
+                <Text style={styles.profileName} numberOfLines={1}>{user?.name || 'Passenger'}</Text>
+                <View style={styles.phoneRow}>
+                  <Phone size={12} color={COLORS.textMuted} />
+                  <Text style={styles.profilePhone} numberOfLines={1}>{user?.mobile || '—'}</Text>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                style={styles.editIconBtn}
+                onPress={() => setShowEditModal(true)}
+                activeOpacity={0.8}
+                accessibilityLabel="Edit profile"
+              >
+                <Pencil size={15} color={COLORS.primary} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.headerDivider} />
+
+            <View style={styles.statsRow}>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{memberSinceLabel}</Text>
+                <Text style={styles.statLabel}>Member Since</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{user?.totalRides ?? 0}</Text>
+                <Text style={styles.statLabel}>Total Rides</Text>
               </View>
             </View>
-
-            <TouchableOpacity
-              style={styles.editIconBtn}
-              onPress={() => setShowEditModal(true)}
-              activeOpacity={0.8}
-              accessibilityLabel="Edit profile"
-            >
-              <Pencil size={15} color={COLORS.primary} />
-            </TouchableOpacity>
           </View>
-
-          <View style={styles.headerDivider} />
-
-          <View style={styles.statsRow}>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{memberSinceLabel}</Text>
-              <Text style={styles.statLabel}>Member Since</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{user?.totalRides ?? 0}</Text>
-              <Text style={styles.statLabel}>Total Rides</Text>
-            </View>
-          </View>
-        </View>
+        </TabHeader>
 
         {/* Saved Places — a plain navigation row (not expandable) since it opens its own screen,
             same treatment as Support items but a single tap goes straight there. */}
@@ -281,6 +333,23 @@ export default function ProfileScreen() {
         onSave={handleSaveProfile}
       />
 
+      {/* New email: confirm the code sent to it before it replaces the current one */}
+      <EmailCodeModal
+        visible={showEmailCode && !!pendingEmail}
+        email={pendingEmail || ''}
+        resendAfterSeconds={emailCodeResendAfter}
+        verifyLabel="Verify & Update Email"
+        onVerify={handleVerifyEmailChange}
+        onResend={async () => {
+          if (pendingEmail) await passengerApi.sendEmailChangeCode(pendingEmail);
+        }}
+        onClose={() => {
+          setShowEmailCode(false);
+          setPendingEmail(null);
+          showToast('Email not changed — the code was not confirmed.', 'info');
+        }}
+      />
+
       <ConfirmModal
         visible={showLogoutConfirm}
         title="Log out?"
@@ -302,12 +371,16 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 40,
   },
+  // Identity card, on the TabHeader's curve.
   header: {
     paddingTop: SPACING.md,
-    paddingBottom: SPACING.lg,
+    paddingBottom: SPACING.md,
     paddingHorizontal: SPACING.md,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
+    borderRadius: RADIUS.xl,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.background,
+    ...SHADOWS.card,
   },
   headerTopRow: {
     flexDirection: 'row',

@@ -1,9 +1,91 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated, ActivityIndicator } from 'react-native';
+import { View, Text, Image, StyleSheet, TouchableOpacity, Animated, ActivityIndicator, Easing } from 'react-native';
 import { COLORS, RADIUS, SHADOWS, SPACING, BUTTONS, TYPOGRAPHY } from '../constants/theme';
 import { useBooking } from '../context/BookingContext';
-import { TricycleIcon } from '../components/icons';
-import { X, RotateCw, AlertCircle, MapPin, ArrowRight } from 'lucide-react-native';
+import RouteSummaryStrip from '../components/RouteSummaryStrip';
+import Svg, { Defs, LinearGradient, Stop, Path, Line } from 'react-native-svg';
+import { X, RotateCw, AlertCircle, MapPin } from 'lucide-react-native';
+
+/** How far each dispatch round reaches — shown to the passenger in plain words. */
+const ROUND_RADIUS: Record<number, string> = { 1: '500 m', 2: '1 km', 3: '2 km' };
+const ROUND_COUNT = 3;
+/** Radar: a disk with a 60° beam sweeping around the logo, one turn every SWEEP_MS. */
+const RADAR_SIZE = 150;
+const SWEEP_MS = 2600;
+const R = RADAR_SIZE / 2;
+// Beam wedge: leading edge straight up from the centre, trailing edge 60° counter-clockwise behind it
+// (the disk rotates clockwise, so the up edge leads).
+const BEAM_TRAIL = { x: R + R * Math.cos((-150 * Math.PI) / 180), y: R + R * Math.sin((-150 * Math.PI) / 180) };
+const BEAM_PATH = `M${R} ${R} L${R} 0 A${R} ${R} 0 0 0 ${BEAM_TRAIL.x} ${BEAM_TRAIL.y} Z`;
+
+/**
+ * The searching radar, as its own memoized component with no props: the screen re-renders every
+ * second (countdown) and when its title/status text change ("Offers Sent to Drivers"), and those
+ * re-renders re-applied the beam's style over the running native rotation, freezing it. Isolated
+ * here, nothing ever re-renders it, so the rotation runs untouched for as long as it's mounted.
+ */
+const RadarSweep = React.memo(function RadarSweep() {
+  const sweep = useRef(new Animated.Value(0)).current;
+  const sweepRotate = useRef(sweep.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] })).current;
+
+  // Keeps turning for as long as the radar is shown: until a driver accepts (the screen moves on)
+  // or the search runs out (No Drivers Available unmounts it). JS-driven and restarted turn by turn
+  // rather than a native-driver Animated.loop, which got cut off when the screen around it updated.
+  useEffect(() => {
+    let running = true;
+    let current: Animated.CompositeAnimation | null = null;
+    const turn = () => {
+      if (!running) return;
+      sweep.setValue(0);
+      current = Animated.timing(sweep, { toValue: 1, duration: SWEEP_MS, easing: Easing.linear, useNativeDriver: false });
+      // Next turn whether this one finished or was interrupted; only unmounting (running = false) ends it.
+      current.start(() => turn());
+    };
+    turn();
+    return () => {
+      running = false;
+      current?.stop();
+    };
+  }, [sweep]);
+
+  // Static disk + inner ring, with the beam sweeping around the logo.
+  return (
+    <View style={styles.radarContainer}>
+      <View style={styles.radarDisk} pointerEvents="none">
+        <View style={styles.radarInnerRing} />
+      </View>
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.radarBeam,
+          { transform: [{ rotate: sweepRotate }] },
+        ]}
+      >
+        <Svg width={RADAR_SIZE} height={RADAR_SIZE}>
+          <Defs>
+            {/* Strongest at the leading edge, fading toward the trailing edge */}
+            <LinearGradient id="beamFade" gradientUnits="userSpaceOnUse" x1={R} y1={0} x2={BEAM_TRAIL.x} y2={BEAM_TRAIL.y}>
+              <Stop offset="0" stopColor={COLORS.primary} stopOpacity={0.35} />
+              <Stop offset="1" stopColor={COLORS.primary} stopOpacity={0} />
+            </LinearGradient>
+          </Defs>
+          <Path d={BEAM_PATH} fill="url(#beamFade)" />
+          <Line x1={R} y1={R} x2={R} y2={0} stroke={COLORS.primary} strokeOpacity={0.6} strokeWidth={2} strokeLinecap="round" />
+        </Svg>
+      </Animated.View>
+
+      {/* Trivora emblem on a white circle (the PNG has a white margin around the mark) */}
+      <View style={styles.centerIconCircle}>
+        <Image
+          source={require('../../assets/branding/emblem-logo.png')}
+          style={styles.centerLogo}
+          resizeMode="contain"
+          accessibilityLabel="Trivora"
+        />
+      </View>
+    </View>
+  );
+});
 
 export default function SearchingDriversScreen() {
   const {
@@ -18,40 +100,11 @@ export default function SearchingDriversScreen() {
     pickup,
     dropoff,
     fareEstimate,
+    paymentMethod,
   } = useBooking();
 
   const [isRetrying, setIsRetrying] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
-  const pulseRing1 = useRef(new Animated.Value(1)).current;
-  const pulseRing2 = useRef(new Animated.Value(1)).current;
-
-  useEffect(() => {
-    if (isNoDriverFound) return;
-
-    const anim1 = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseRing1, { toValue: 1.35, duration: 1500, useNativeDriver: true }),
-        Animated.timing(pulseRing1, { toValue: 1, duration: 1500, useNativeDriver: true }),
-      ])
-    );
-
-    const anim2 = Animated.loop(
-      Animated.sequence([
-        Animated.delay(500),
-        Animated.timing(pulseRing2, { toValue: 1.5, duration: 1800, useNativeDriver: true }),
-        Animated.timing(pulseRing2, { toValue: 1, duration: 1800, useNativeDriver: true }),
-      ])
-    );
-
-    anim1.start();
-    anim2.start();
-
-    return () => {
-      anim1.stop();
-      anim2.stop();
-    };
-  }, [isNoDriverFound]);
-
   // Cancelling waits for the server, so show it and block repeat taps meanwhile.
   const handleCancel = async () => {
     if (isCancelling) return;
@@ -73,6 +126,21 @@ export default function SearchingDriversScreen() {
     }
   };
 
+  const passengerLabel = `${fareEstimate.passengerCount} ${fareEstimate.passengerCount === 1 ? 'passenger' : 'passengers'}`;
+  const paymentLabel = paymentMethod === 'gcash' ? 'GCash' : 'Cash';
+
+  // The booked trip, so the passenger can check it while waiting (and see it's kept if no one accepts).
+  const tripCard = (title: string) => (
+    <View style={styles.tripCard}>
+      <Text style={styles.tripCardTitle}>{title}</Text>
+      <RouteSummaryStrip variant="readonly" pickupLabel={pickup.name} dropoffLabel={dropoff.name} />
+      <View style={styles.fareSummaryRow}>
+        <Text style={styles.fareSummaryLabel}>{passengerLabel} · {paymentLabel}</Text>
+        <Text style={styles.fareSummaryValue}>₱{fareEstimate.total.toFixed(2)}</Text>
+      </View>
+    </View>
+  );
+
   if (isNoDriverFound) {
     return (
       <View style={styles.container}>
@@ -82,39 +150,11 @@ export default function SearchingDriversScreen() {
           </View>
           <Text style={styles.title}>No Drivers Available</Text>
           <Text style={styles.subtitle}>
-            We searched up to 2 km across 3 dispatch rounds, but no available drivers accepted your request at this time.
+            No drivers are free near you right now. Your trip is saved, so you can try again.
           </Text>
         </View>
 
-        {/* Preserved Route & Fare Details */}
-        <View style={styles.tripCard}>
-          <Text style={styles.tripCardTitle}>TRIP DETAILS PRESERVED</Text>
-
-          <View style={styles.routeRow}>
-            <View style={styles.routeDotGreen} />
-            <View style={styles.routeTextCol}>
-              <Text style={styles.routeLabel}>Pick-up</Text>
-              <Text style={styles.routeAddress} numberOfLines={1}>{pickup.name}</Text>
-            </View>
-          </View>
-
-          <View style={styles.routeDividerLine} />
-
-          <View style={styles.routeRow}>
-            <View style={styles.routeDotRed} />
-            <View style={styles.routeTextCol}>
-              <Text style={styles.routeLabel}>Destination</Text>
-              <Text style={styles.routeAddress} numberOfLines={1}>{dropoff.name}</Text>
-            </View>
-          </View>
-
-          <View style={styles.fareSummaryRow}>
-            <Text style={styles.fareSummaryLabel}>
-              Estimated Fare ({fareEstimate.passengerCount} {fareEstimate.passengerCount === 1 ? 'passenger' : 'passengers'})
-            </Text>
-            <Text style={styles.fareSummaryValue}>₱{fareEstimate.total.toFixed(2)}</Text>
-          </View>
-        </View>
+        {tripCard('Your trip')}
 
         {/* Actions */}
         <View style={styles.bottomContainer}>
@@ -163,7 +203,9 @@ export default function SearchingDriversScreen() {
 
   const minutes = Math.floor(searchCountdown / 60);
   const seconds = searchCountdown % 60;
-  const formattedTime = `${minutes < 10 ? '0' : ''}${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+  // A countdown for the current search round — not an estimate of when a driver will accept.
+  const roundTimeLeft = `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+  const round = Math.min(Math.max(dispatchRound || 1, 1), ROUND_COUNT);
 
   return (
     <View style={styles.container}>
@@ -174,54 +216,23 @@ export default function SearchingDriversScreen() {
         </Text>
         <Text style={styles.subtitle}>{searchStatusText}</Text>
 
-        {/* 3-Round Expanding Radius Pills */}
-        <View style={styles.roundPillsContainer}>
-          <View style={[styles.roundPill, dispatchRound === 1 && styles.roundPillActive]}>
-            <Text style={[styles.roundPillText, dispatchRound === 1 && styles.roundPillTextActive]}>
-              R1: 500m
-            </Text>
-          </View>
-          <View style={styles.roundPillArrow}>
-            <ArrowRight size={12} color={COLORS.textMuted} />
-          </View>
-          <View style={[styles.roundPill, dispatchRound === 2 && styles.roundPillActive]}>
-            <Text style={[styles.roundPillText, dispatchRound === 2 && styles.roundPillTextActive]}>
-              R2: 1 km
-            </Text>
-          </View>
-          <View style={styles.roundPillArrow}>
-            <ArrowRight size={12} color={COLORS.textMuted} />
-          </View>
-          <View style={[styles.roundPill, dispatchRound === 3 && styles.roundPillActive]}>
-            <Text style={[styles.roundPillText, dispatchRound === 3 && styles.roundPillTextActive]}>
-              R3: 2 km
-            </Text>
-          </View>
+        {/* Search progress: one dot per round, filled up to the current one */}
+        <View style={styles.progressRow} accessibilityLabel={`Search step ${round} of ${ROUND_COUNT}`}>
+          {Array.from({ length: ROUND_COUNT }, (_, i) => (
+            <View key={i} style={[styles.progressDot, i < round && styles.progressDotActive]} />
+          ))}
         </View>
+        <Text style={styles.progressCaption}>Looking for drivers within {ROUND_RADIUS[round]}</Text>
       </View>
 
-      {/* Central Animated Concentric Radar */}
-      <View style={styles.radarContainer}>
-        <Animated.View style={[styles.radarOuterRing, { transform: [{ scale: pulseRing2 }] }]}>
-          <View style={[styles.ringDot, { top: 18, left: '32%' }]} />
-          <View style={[styles.ringDot, { bottom: 25, right: '28%' }]} />
-          <View style={[styles.ringDot, { top: '50%', right: 12 }]} />
-          <View style={[styles.ringDot, { top: '45%', left: 16 }]} />
-        </Animated.View>
+      <RadarSweep />
 
-        <Animated.View style={[styles.radarMiddleRing, { transform: [{ scale: pulseRing1 }] }]} />
+      {tripCard('Your trip')}
 
-        <View style={styles.centerIconCircle}>
-          <TricycleIcon size={34} color="#FFFFFF" accentColor="#93C5FD" roofColor="#FFFFFF" />
-        </View>
-      </View>
-
-      {/* Bottom Wait Time & Action */}
+      {/* Bottom: round timer, what's happening, and a calm cancel */}
       <View style={styles.bottomContainer}>
-        <Text style={styles.waitLabel}>Estimated match time</Text>
-        <Text style={styles.timerDisplay}>{formattedTime}</Text>
         <Text style={styles.helperText}>
-          Broadcasting simultaneously to all eligible MTOP franchised tricycle drivers.
+          We're sending your request to nearby tricycle drivers · {roundTimeLeft} left in this round
         </Text>
 
         <TouchableOpacity
@@ -232,13 +243,13 @@ export default function SearchingDriversScreen() {
         >
           {isCancelling ? (
             <>
-              <ActivityIndicator color={COLORS.dangerDark} size="small" />
+              <ActivityIndicator color={COLORS.textSecondary} size="small" />
               <Text style={styles.cancelButtonText}>Cancelling...</Text>
             </>
           ) : (
             <>
-              <X size={18} color={COLORS.dangerDark} strokeWidth={2.4} />
-              <Text style={styles.cancelButtonText}>Cancel Ride Request</Text>
+              <X size={18} color={COLORS.textSecondary} strokeWidth={2.4} />
+              <Text style={styles.cancelButtonText}>Cancel request</Text>
             </>
           )}
         </TouchableOpacity>
@@ -282,133 +293,89 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingHorizontal: SPACING.sm,
   },
-  roundPillsContainer: {
+  progressRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: SPACING.md,
     gap: 6,
+    marginTop: SPACING.md,
   },
-  roundPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: RADIUS.full,
-    backgroundColor: COLORS.backgroundSubtle,
-    borderWidth: 1,
-    borderColor: COLORS.border,
+  progressDot: {
+    width: 24,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: COLORS.border,
   },
-  roundPillActive: {
+  progressDotActive: {
     backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary,
   },
-  roundPillText: {
+  progressCaption: {
     ...TYPOGRAPHY.caption,
-    fontWeight: '600',
     color: COLORS.textSecondary,
-  },
-  roundPillTextActive: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-  },
-  roundPillArrow: {
-    alignItems: 'center',
-    justifyContent: 'center',
+    marginTop: 6,
   },
   radarContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    height: 280,
-  },
-  radarOuterRing: {
-    position: 'absolute',
-    width: 260,
-    height: 260,
-    borderRadius: 130,
-    backgroundColor: 'rgba(28, 43, 90, 0.06)',
-    borderWidth: 1.5,
-    borderColor: 'rgba(28, 43, 90, 0.18)',
-  },
-  ringDot: {
-    position: 'absolute',
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: COLORS.primary,
-  },
-  radarMiddleRing: {
-    position: 'absolute',
-    width: 170,
     height: 170,
-    borderRadius: 85,
-    backgroundColor: 'rgba(28, 43, 90, 0.1)',
-    borderWidth: 1.5,
-    borderColor: 'rgba(28, 43, 90, 0.28)',
   },
-  centerIconCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: COLORS.primary,
+  radarDisk: {
+    position: 'absolute',
+    width: RADAR_SIZE,
+    height: RADAR_SIZE,
+    borderRadius: R,
+    backgroundColor: 'rgba(24, 43, 98, 0.05)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(24, 43, 98, 0.15)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  radarInnerRing: {
+    width: RADAR_SIZE * 0.66,
+    height: RADAR_SIZE * 0.66,
+    borderRadius: (RADAR_SIZE * 0.66) / 2,
+    borderWidth: 1,
+    borderColor: 'rgba(24, 43, 98, 0.12)',
+  },
+  radarBeam: {
+    position: 'absolute',
+    width: RADAR_SIZE,
+    height: RADAR_SIZE,
+  },
+  centerIconCircle: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: COLORS.background,
+    borderWidth: 2,
+    borderColor: COLORS.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
     ...SHADOWS.md,
+  },
+  centerLogo: {
+    width: 64,
+    height: 64,
   },
   tripCard: {
     backgroundColor: COLORS.backgroundSubtle,
     borderRadius: RADIUS.lg,
-    padding: SPACING.md,
+    paddingHorizontal: SPACING.md,
+    paddingTop: SPACING.sm + 4,
+    paddingBottom: SPACING.sm + 4,
     borderWidth: 1,
     borderColor: COLORS.border,
     marginVertical: SPACING.md,
   },
   tripCardTitle: {
-    ...TYPOGRAPHY.caption,
-    fontWeight: '700',
+    ...TYPOGRAPHY.label,
     color: COLORS.textMuted,
-    letterSpacing: 1,
-    marginBottom: SPACING.sm,
-  },
-  routeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  routeDotGreen: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: COLORS.success,
-  },
-  routeDotRed: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: COLORS.danger,
-  },
-  routeDividerLine: {
-    width: 2,
-    height: 14,
-    backgroundColor: COLORS.border,
-    marginLeft: 4,
-    marginVertical: 2,
-  },
-  routeTextCol: {
-    flex: 1,
-  },
-  routeLabel: {
-    ...TYPOGRAPHY.caption,
-    color: COLORS.textMuted,
-  },
-  routeAddress: {
-    ...TYPOGRAPHY.bodySmall,
-    fontWeight: '600',
-    color: COLORS.textPrimary,
+    marginBottom: SPACING.xs,
   },
   fareSummaryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: SPACING.md,
+    marginTop: SPACING.sm,
     paddingTop: SPACING.sm,
     borderTopWidth: 1,
     borderTopColor: COLORS.border,
@@ -428,21 +395,11 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     gap: SPACING.sm,
   },
-  waitLabel: {
-    ...TYPOGRAPHY.caption,
-    color: COLORS.textSecondary,
-    marginBottom: 2,
-  },
-  timerDisplay: {
-    ...TYPOGRAPHY.display,
-    color: COLORS.textPrimary,
-    marginBottom: 4,
-  },
   helperText: {
     ...TYPOGRAPHY.bodySmall,
     color: COLORS.textSecondary,
     textAlign: 'center',
-    marginBottom: SPACING.md,
+    marginBottom: SPACING.sm,
   },
   primaryButton: {
     width: '100%',
@@ -488,6 +445,7 @@ const styles = StyleSheet.create({
     ...TYPOGRAPHY.bodySmall,
     color: COLORS.textSecondary,
   },
+  // Outlined and neutral: easy to find, without being the loudest thing on the screen.
   cancelButton: {
     width: '100%',
     height: BUTTONS.touchHeight,
@@ -497,12 +455,12 @@ const styles = StyleSheet.create({
     gap: 8,
     borderRadius: RADIUS.lg,
     borderWidth: 1.5,
-    borderColor: COLORS.dangerBorder,
-    backgroundColor: COLORS.dangerLight,
-    ...SHADOWS.sm,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.background,
   },
   cancelButtonText: {
     ...TYPOGRAPHY.bodyLarge,
-    color: COLORS.dangerDark,
+    fontWeight: '600',
+    color: COLORS.textSecondary,
   },
 });

@@ -109,7 +109,7 @@ export default function DriverEnRouteScreen({ topInset = 0, bottomInset = 0 }: D
         }}
         activeZone={matchedToda}
         rideState="driver_en_route"
-        mapVariant="liberty"
+        mapVariant="bright"
         pitch={50}
         showTodaPill={false}
         showCompass={true}

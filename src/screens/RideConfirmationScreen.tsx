@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput } from 
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '../constants/theme';
 import { useBooking } from '../context/BookingContext';
 import { calculateFare } from '../constants/todaRoutes';
-import { MessageSquare, ArrowLeft, Minus, Plus, Banknote, Smartphone } from 'lucide-react-native';
+import { MessageSquare, ArrowLeft, Minus, Plus, Banknote, Smartphone, ChevronDown, ChevronUp, CheckCircle2 } from 'lucide-react-native';
 import TrivoraMap from '../components/TrivoraMap';
 import FloatingIconButton from '../components/FloatingIconButton';
 import Button from '../components/Button';
@@ -14,6 +14,17 @@ const MAP_STRIP_HEIGHT = 200;
  * map as topInset so the trip fit keeps both pins below it. */
 const BACK_BUTTON_TOP = 10;
 const BACK_BUTTON_SIZE = 38;
+/** Same ceiling the backend validates (BookingController: passenger_count max:10). */
+const MAX_PASSENGERS = 10;
+/** One-tap additions to the note to driver; tapping a selected one removes it again. */
+const QUICK_NOTES = ['Waiting outside', 'Call me on arrival', 'With luggage', 'Please wait a moment'];
+
+/** Toggles a quick note in the comma-separated note text, leaving anything typed intact. */
+function toggleQuickNote(note: string, quick: string) {
+  const parts = note.split(',').map((p) => p.trim()).filter(Boolean);
+  const next = parts.includes(quick) ? parts.filter((p) => p !== quick) : [...parts, quick];
+  return next.join(', ');
+}
 
 /**
  * Confirm a booked ride: route recap, passengers (stepper), payment method (one row), the fare
@@ -37,6 +48,9 @@ export default function RideConfirmationScreen() {
   const [isConfirming, setIsConfirming] = useState(false);
   // A stepper (never free text), so the count is always a whole number of at least 1.
   const [passengerCount, setPassengerCount] = useState(1);
+  // Fare shows as one total row; the line-by-line breakdown opens on demand.
+  const [showBreakdown, setShowBreakdown] = useState(false);
+  const noteParts = noteToDriver.split(',').map((p) => p.trim());
 
   // The one place this screen computes fare: mirrors FareService on the backend exactly (same
   // function used everywhere else in the app), fed the real route distance and the passenger
@@ -89,13 +103,18 @@ export default function RideConfirmationScreen() {
       <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
         <View style={styles.routeCard}>
           <RouteSummaryStrip variant="readonly" pickupLabel={pickup.name} dropoffLabel={dropoff.name} />
+          <Text style={styles.routeMeta}>
+            {Number(liveFare.distanceKm).toFixed(1)} km · ~{liveFare.durationMinutes} min
+          </Text>
         </View>
 
         {/* Passengers */}
         <View style={styles.rowCard}>
           <View style={styles.flex}>
             <Text style={styles.rowTitle}>Passengers</Text>
-            <Text style={styles.rowCaption}>Including yourself</Text>
+            <Text style={styles.rowCaption}>
+              {passengerCount >= MAX_PASSENGERS ? `Maximum of ${MAX_PASSENGERS}` : 'Including yourself'}
+            </Text>
           </View>
           <View style={styles.stepper}>
             <TouchableOpacity
@@ -108,8 +127,9 @@ export default function RideConfirmationScreen() {
             </TouchableOpacity>
             <Text style={styles.stepValue}>{passengerCount}</Text>
             <TouchableOpacity
-              style={styles.stepBtn}
-              onPress={() => setPassengerCount((n) => n + 1)}
+              style={[styles.stepBtn, passengerCount >= MAX_PASSENGERS && styles.stepBtnDisabled]}
+              onPress={() => setPassengerCount((n) => Math.min(MAX_PASSENGERS, n + 1))}
+              disabled={passengerCount >= MAX_PASSENGERS}
               accessibilityLabel="More passengers"
             >
               <Plus size={16} color={COLORS.primary} />
@@ -137,6 +157,7 @@ export default function RideConfirmationScreen() {
                 >
                   <Icon size={18} color={active ? COLORS.primary : COLORS.textSecondary} />
                   <Text style={[styles.paymentMethodText, active && styles.paymentMethodTextActive]}>{label}</Text>
+                  {active && <CheckCircle2 size={16} color={COLORS.primary} style={styles.paymentCheck} />}
                 </TouchableOpacity>
               );
             })}
@@ -146,17 +167,36 @@ export default function RideConfirmationScreen() {
           </Text>
         </View>
 
-        {/* Fare details */}
+        {/* Fare — one total row; the breakdown opens on tap (distance lives in the route card) */}
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>Fare</Text>
-          <View>
-            <FareLine label="Distance" value={`${Number(liveFare.distanceKm).toFixed(1)} km`} />
-            <FareLine
-              label={liveFare.passengerCount === 1 ? 'Base fare (first 4 km)' : 'Base fare (first 4 km, each)'}
-              value={`₱${liveFare.base.toFixed(2)}`}
-            />
-            {hasAdditionalDistance && (
-              <FareLine label="Extra distance (₱5.00/km, each)" value={`₱${liveFare.distanceFee.toFixed(2)}`} />
+          <TouchableOpacity
+            style={styles.fareSummaryRow}
+            onPress={() => setShowBreakdown((v) => !v)}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: showBreakdown }}
+            accessibilityLabel={`Total fare ₱${liveFare.total.toFixed(2)}. ${showBreakdown ? 'Hide' : 'See'} breakdown`}
+          >
+            <Text style={styles.totalLabel}>Total fare</Text>
+            <View style={styles.fareSummaryRight}>
+              <Text style={styles.fareSummaryValue}>₱{liveFare.total.toFixed(2)}</Text>
+              {/* Up = hide the breakdown, down = show it. */}
+              {showBreakdown ? (
+                <ChevronUp size={18} color={COLORS.primary} />
+              ) : (
+                <ChevronDown size={18} color={COLORS.primary} />
+              )}
+            </View>
+          </TouchableOpacity>
+          {showBreakdown && (
+            <View style={styles.breakdown}>
+              <FareLine
+                label={liveFare.passengerCount === 1 ? 'Base fare (first 4 km)' : 'Base fare (first 4 km, each)'}
+                value={`₱${liveFare.base.toFixed(2)}`}
+              />
+              {hasAdditionalDistance && (
+                <FareLine label="Extra distance (₱5.00/km, each)" value={`₱${liveFare.distanceFee.toFixed(2)}`} />
             )}
             <FareLine label="Fare per passenger" value={`₱${liveFare.perPassengerFare.toFixed(2)}`} />
             <FareLine label="Passengers" value={`× ${liveFare.passengerCount}`} />
@@ -165,11 +205,29 @@ export default function RideConfirmationScreen() {
               <Text style={styles.totalValue}>₱{liveFare.total.toFixed(2)}</Text>
             </View>
           </View>
+          )}
         </View>
 
         {/* Note to driver */}
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>Note to Driver (Optional)</Text>
+          <View style={styles.quickNotesRow}>
+            {QUICK_NOTES.map((quick) => {
+              const selected = noteParts.includes(quick);
+              return (
+                <TouchableOpacity
+                  key={quick}
+                  style={[styles.quickNote, selected && styles.quickNoteSelected]}
+                  onPress={() => setNoteToDriver(toggleQuickNote(noteToDriver, quick))}
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                >
+                  <Text style={[styles.quickNoteText, selected && styles.quickNoteTextSelected]}>{quick}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
           <View style={styles.noteInputRow}>
             <MessageSquare size={16} color={COLORS.textSecondary} />
             <TextInput
@@ -224,6 +282,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border,
   },
+  routeMeta: {
+    ...TYPOGRAPHY.caption,
+    fontWeight: '600',
+    color: COLORS.textSecondary,
+    paddingLeft: 16 + 12, // under the addresses, past RouteSummaryStrip's rail + gap
+    paddingBottom: SPACING.sm,
+  },
   section: { gap: SPACING.sm },
   sectionLabel: { ...TYPOGRAPHY.label, color: COLORS.textMuted },
   hint: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary },
@@ -260,8 +325,17 @@ const styles = StyleSheet.create({
   paymentMethodCardActive: { borderColor: COLORS.primary, backgroundColor: COLORS.primaryTint },
   paymentMethodText: { ...TYPOGRAPHY.body, fontWeight: '600', color: COLORS.textPrimary },
   paymentMethodTextActive: { color: COLORS.primary },
+  paymentCheck: { marginLeft: 'auto' },
 
   // Fare
+  fareSummaryRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm + 4,
+    borderRadius: RADIUS.lg, borderWidth: 1, borderColor: COLORS.border,
+  },
+  fareSummaryRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  fareSummaryValue: { ...TYPOGRAPHY.bodyLarge, fontWeight: '700', color: COLORS.textPrimary, marginRight: 4 },
+  breakdown: { paddingHorizontal: SPACING.xs },
   fareLine: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', minHeight: 34, gap: SPACING.md },
   fareLabel: { ...TYPOGRAPHY.body, color: COLORS.textSecondary, flexShrink: 1 },
   fareValue: { ...TYPOGRAPHY.body, fontWeight: '600', color: COLORS.textPrimary },
@@ -281,6 +355,15 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: COLORS.border,
   },
   noteInput: { flex: 1, ...TYPOGRAPHY.body, color: COLORS.textPrimary },
+  quickNotesRow: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm },
+  quickNote: {
+    paddingHorizontal: 12, paddingVertical: 6,
+    borderRadius: RADIUS.full, borderWidth: 1, borderColor: COLORS.border,
+    backgroundColor: COLORS.surface,
+  },
+  quickNoteSelected: { borderColor: COLORS.primary, backgroundColor: COLORS.primary },
+  quickNoteText: { ...TYPOGRAPHY.caption, fontWeight: '600', color: COLORS.textSecondary },
+  quickNoteTextSelected: { color: COLORS.textInverse },
 
   // Footer: total beside Confirm, as on the QR ride setup
   bottomBar: {

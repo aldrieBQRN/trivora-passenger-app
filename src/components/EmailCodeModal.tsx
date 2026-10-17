@@ -11,7 +11,7 @@ import {
   View,
 } from 'react-native';
 import { Mail, X } from 'lucide-react-native';
-import { BUTTONS, COLORS, RADIUS, SPACING, TYPOGRAPHY } from '../constants/theme';
+import { BUTTONS, COLORS, RADIUS, SPACING, TYPOGRAPHY, FONT_FAMILY } from '../constants/theme';
 
 interface EmailCodeModalProps {
   visible: boolean;
@@ -22,9 +22,11 @@ interface EmailCodeModalProps {
   onVerify: (code: string) => Promise<void>;
   onResend: () => Promise<void>;
   onClose: () => void;
+  /** Verify button text — sign-up's "Verify & Create Account" by default. */
+  verifyLabel?: string;
 }
 
-/** "Verify your email" modal for sign-up: 6-digit code entry with a resend countdown. */
+/** "Verify your email" modal (sign-up, email change): 6-digit code entry with a resend countdown. */
 export default function EmailCodeModal({
   visible,
   email,
@@ -32,6 +34,7 @@ export default function EmailCodeModal({
   onVerify,
   onResend,
   onClose,
+  verifyLabel = 'Verify & Create Account',
 }: EmailCodeModalProps) {
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -137,7 +140,7 @@ export default function EmailCodeModal({
             {verifying ? (
               <ActivityIndicator color={COLORS.textInverse} />
             ) : (
-              <Text style={styles.verifyButtonText}>Verify & Create Account</Text>
+              <Text style={styles.verifyButtonText}>{verifyLabel}</Text>
             )}
           </TouchableOpacity>
 
@@ -202,6 +205,7 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.md,
   },
   email: {
+    fontFamily: FONT_FAMILY,
     color: COLORS.textPrimary,
     fontWeight: '700',
   },

@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { COLORS } from '../constants/theme';
+import { COLORS, FONT_FAMILY } from '../constants/theme';
 
 export type RideStep = 'en_route' | 'arrived' | 'in_transit' | 'completed';
 
@@ -86,11 +86,13 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
   },
   label: {
+    fontFamily: FONT_FAMILY,
     fontSize: 11,
     color: COLORS.textSecondary,
     fontWeight: '500',
   },
   labelActive: {
+    fontFamily: FONT_FAMILY,
     color: COLORS.primary,
     fontWeight: '700',
   },

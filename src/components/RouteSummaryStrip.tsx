@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { ChevronRight, MapPin } from 'lucide-react-native';
-import { COLORS, TYPOGRAPHY } from '../constants/theme';
+import { COLORS, TYPOGRAPHY, FONT_FAMILY } from '../constants/theme';
 
 interface RouteSummaryStripProps {
   pickupLabel: string;
@@ -69,7 +69,7 @@ export default function RouteSummaryStrip({
               style={[styles.rowValue, compact && styles.rowValueCompact, !dropoffLabel && styles.rowValuePlaceholder]}
               numberOfLines={1}
             >
-              {dropoffLabel || 'Select destination'}
+              {dropoffLabel || 'Where to?'}
             </Text>
           </View>
           {editable && <ChevronRight size={14} color={COLORS.textMuted} />}
@@ -133,9 +133,11 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
   rowValueCompact: {
+    fontFamily: FONT_FAMILY,
     fontWeight: '700',
   },
   rowValuePlaceholder: {
+    fontFamily: FONT_FAMILY,
     color: COLORS.textMuted,
     fontWeight: '400',
   },

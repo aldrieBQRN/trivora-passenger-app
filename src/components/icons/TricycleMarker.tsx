@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, StyleSheet, Text, ViewStyle, Image } from 'react-native';
-import { COLORS, SHADOWS } from '../../constants/theme';
+import { COLORS, SHADOWS, FONT_FAMILY } from '../../constants/theme';
 import { TRICYCLE_MARKER_IMAGE } from '../../constants/mapPins';
 
 interface TricycleMarkerProps {
@@ -69,6 +69,7 @@ const styles = StyleSheet.create({
     ...SHADOWS.sm,
   },
   etaText: {
+    fontFamily: FONT_FAMILY,
     color: '#FFFFFF',
     fontSize: 9,
     fontWeight: '700',

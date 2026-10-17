@@ -9,7 +9,7 @@ import {
   Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '../constants/theme';
+import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY, FONT_FAMILY } from '../constants/theme';
 import { NotificationItem } from '../types';
 import { X, Bell, Receipt, AlertTriangle, Info, CheckCircle2 } from 'lucide-react-native';
 
@@ -38,16 +38,17 @@ export default function NotificationsModal({
 }: NotificationsModalProps) {
   // Bottom sheet clears the phone's navigation bar (gesture or 3-button).
   const insets = useSafeAreaInsets();
-  const getNotificationIcon = (type: NotificationItem['type']) => {
+  // Icon + tone per type — same round, tinted bubbles as the Driver app's notification rows.
+  const typeVisual = (type: NotificationItem['type']) => {
     switch (type) {
       case 'receipt':
-        return <Receipt size={18} color={COLORS.sky} />;
+        return { Icon: Receipt, color: COLORS.primary, bubble: styles.iconBubbleInfo };
       case 'alert':
-        return <AlertTriangle size={18} color={COLORS.danger} />;
+        return { Icon: AlertTriangle, color: COLORS.dangerDark, bubble: styles.iconBubbleDanger };
       case 'promo':
-        return <CheckCircle2 size={18} color={COLORS.success} />;
+        return { Icon: CheckCircle2, color: COLORS.success, bubble: styles.iconBubbleSuccess };
       default:
-        return <Info size={18} color={COLORS.primary} />;
+        return { Icon: Info, color: COLORS.primary, bubble: styles.iconBubbleInfo };
     }
   };
 
@@ -60,8 +61,12 @@ export default function NotificationsModal({
           <View style={styles.header}>
             <View style={styles.titleGroup}>
               <Bell size={20} color={COLORS.primary} />
-              <Text style={styles.title}>Notifications</Text>
-              {unreadCount > 0 && <Text style={styles.unreadLabel}>{unreadCount} unread</Text>}
+              {/* Unread count sits under the title rather than beside it */}
+              <View>
+                <Text style={styles.title}>Notifications</Text>
+                {/* Always shown — reads "0 unread" after Mark all read instead of disappearing */}
+                <Text style={styles.unreadLabel}>{unreadCount} unread</Text>
+              </View>
             </View>
             <View style={styles.headerActions}>
               {unreadCount > 0 && (
@@ -82,28 +87,33 @@ export default function NotificationsModal({
             data={notifications}
             keyExtractor={(item) => String(item.id)}
             contentContainerStyle={styles.listContent}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={styles.itemRow}
-                onPress={() => onOpen(item)}
-                activeOpacity={0.7}
-              >
-                <View style={styles.iconCircle}>{getNotificationIcon(item.type)}</View>
-
-                <View style={styles.textContent}>
-                  <View style={styles.topLine}>
-                    <Text style={[styles.itemTitle, !item.read && styles.itemTitleUnread]} numberOfLines={1}>
-                      {item.title}
-                    </Text>
-                    <View style={styles.metaRight}>
-                      {!item.read && <View style={styles.unreadDot} />}
-                      <Text style={styles.itemTime}>{item.time}</Text>
-                    </View>
+            renderItem={({ item }) => {
+              const { Icon, color, bubble } = typeVisual(item.type);
+              return (
+                <TouchableOpacity
+                  style={styles.itemRow}
+                  onPress={() => onOpen(item)}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.iconBubble, bubble]}>
+                    <Icon size={17} color={color} />
                   </View>
-                  <Text style={styles.itemBody}>{item.body}</Text>
-                </View>
-              </TouchableOpacity>
-            )}
+
+                  <View style={styles.textContent}>
+                    <View style={styles.topLine}>
+                      <Text style={[styles.itemTitle, item.read && styles.itemTitleRead]} numberOfLines={1}>
+                        {item.title}
+                      </Text>
+                      <View style={styles.metaRight}>
+                        {!item.read && <View style={styles.unreadDot} />}
+                        <Text style={styles.itemTime}>{item.time}</Text>
+                      </View>
+                    </View>
+                    <Text style={styles.itemBody}>{item.body}</Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            }}
             ListEmptyComponent={
               <View style={styles.emptyState}>
                 <Bell size={36} color={COLORS.textSecondary} opacity={0.4} />
@@ -154,6 +164,7 @@ const styles = StyleSheet.create({
   unreadLabel: {
     ...TYPOGRAPHY.caption,
     color: COLORS.textSecondary,
+    marginTop: 1,
   },
   headerActions: {
     flexDirection: 'row',
@@ -161,6 +172,7 @@ const styles = StyleSheet.create({
     gap: SPACING.md,
   },
   markAllText: {
+    fontFamily: FONT_FAMILY,
     fontSize: 12,
     fontWeight: '700',
     color: COLORS.primary,
@@ -177,21 +189,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.lg,
     paddingVertical: SPACING.xs,
   },
+  // Rows — same as the Driver app's notification rows (bubble icon, bold title while unread).
   itemRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    gap: SPACING.sm,
     paddingVertical: SPACING.sm + 2,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.borderLight,
-    gap: 12,
   },
-  iconCircle: {
-    width: 38,
-    height: 38,
-    borderRadius: RADIUS.md,
-    backgroundColor: COLORS.backgroundSubtle,
+  iconBubble: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  iconBubbleDanger: {
+    backgroundColor: COLORS.dangerLight,
+  },
+  iconBubbleInfo: {
+    backgroundColor: COLORS.backgroundSubtle,
+  },
+  iconBubbleSuccess: {
+    backgroundColor: COLORS.successLight,
   },
   textContent: {
     flex: 1,
@@ -200,38 +220,37 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 4,
+    gap: SPACING.sm,
   },
   itemTitle: {
-    fontSize: 13,
+    ...TYPOGRAPHY.body,
     fontWeight: '700',
     color: COLORS.textPrimary,
-    flex: 1,
-    marginRight: 6,
+    flexShrink: 1,
   },
-  itemTitleUnread: {
-    fontWeight: '700',
-    color: COLORS.primary,
-  },
-  itemTime: {
-    fontSize: 11,
-    color: COLORS.textSecondary,
+  itemTitleRead: {
+    fontFamily: FONT_FAMILY,
     fontWeight: '500',
   },
+  itemTime: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textMuted,
+  },
   itemBody: {
-    fontSize: 11,
+    ...TYPOGRAPHY.bodySmall,
     color: COLORS.textSecondary,
-    lineHeight: 16,
+    marginTop: 2,
+    lineHeight: 17,
   },
   metaRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
+    gap: SPACING.xs,
   },
   unreadDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 8,
+    height: 8,
+    borderRadius: RADIUS.full,
     backgroundColor: COLORS.primary,
   },
   emptyState: {
@@ -240,11 +259,13 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   emptyTitle: {
+    fontFamily: FONT_FAMILY,
     fontSize: 15,
     fontWeight: '700',
     color: COLORS.textPrimary,
   },
   emptySub: {
+    fontFamily: FONT_FAMILY,
     fontSize: 12,
     color: COLORS.textSecondary,
   },

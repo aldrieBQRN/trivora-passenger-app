@@ -7,6 +7,7 @@ import Avatar, { AvatarTone } from './Avatar';
 import PhotoActionSheet from './PhotoActionSheet';
 import { passengerApi } from '../services/api';
 import { useToast } from './Toast';
+import { checkPickedPhoto, uploadFileFor } from '../utils/uploadCheck';
 
 interface EditableAvatarProps {
   name: string;
@@ -36,13 +37,14 @@ export default function EditableAvatar({
   const [isUploading, setIsUploading] = useState(false);
 
   const applyAsset = async (asset: ImagePicker.ImagePickerAsset) => {
+    const problem = checkPickedPhoto(asset);
+    if (problem) {
+      showToast(problem, 'info');
+      return;
+    }
     setIsUploading(true);
     try {
-      const res: any = await passengerApi.uploadProfilePhoto({
-        uri: asset.uri,
-        name: asset.fileName || `avatar-${Date.now()}.jpg`,
-        type: asset.mimeType || 'image/jpeg',
-      });
+      const res: any = await passengerApi.uploadProfilePhoto(uploadFileFor(asset, 'avatar'));
       onPhotoChanged(res?.profile_photo_url ?? null);
       showToast('Profile picture updated.');
     } catch (err: any) {

@@ -265,10 +265,34 @@ export const passengerApi = {
 
   /** Persists the Emergency Contact fields to the authenticated passenger's own record — the
    * only Edit Profile field that previously had no backend write path at all. */
-  updateProfile: async (payload: { emergency_contact_name?: string; emergency_contact_phone?: string }) => {
+  /** Saves name / mobile / emergency contact (only the fields sent). Email changes go through
+   * sendEmailChangeCode + verifyEmailChange instead. */
+  updateProfile: async (payload: {
+    name?: string;
+    mobile_number?: string;
+    emergency_contact_name?: string;
+    emergency_contact_phone?: string;
+  }) => {
     return request('/passenger/profile', {
       method: 'PUT',
       body: JSON.stringify(payload),
+    });
+  },
+
+  /** Email change step 1: emails a 6-digit code to the NEW address (422 with a message if it's
+   * already this account's email or registered to another account). */
+  sendEmailChangeCode: async (email: string): Promise<{ resend_after_seconds?: number }> => {
+    return request('/passenger/profile/email/send-code', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  },
+
+  /** Email change step 2: the correct code saves the new address as the account's email. */
+  verifyEmailChange: async (email: string, code: string): Promise<{ user: { email: string } }> => {
+    return request('/passenger/profile/email/verify', {
+      method: 'POST',
+      body: JSON.stringify({ email, code }),
     });
   },
 
