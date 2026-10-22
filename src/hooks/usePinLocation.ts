@@ -92,7 +92,7 @@ export function usePinLocation(
       reverseGeocode(coords).then((geo) => {
         setPinnedLocation((prev) =>
           prev && prev.lat === coords.lat && prev.lng === coords.lng
-            ? { ...prev, name: geo.address || prev.name, barangay: geo.barangay, address: geo.address || prev.address }
+            ? { ...prev, name: geo.placeName || geo.address || prev.name, barangay: geo.barangay, address: geo.address || prev.address }
             : prev
         );
       });
@@ -141,7 +141,8 @@ export function usePinLocation(
         if (requestId !== requestIdRef.current) return;
 
         setPinnedLocation({
-          name: geocode.address || 'Pinned Location',
+          // A pin on a named place (shop, school, church…) takes that name; the address shows under it.
+          name: geocode.placeName || geocode.address || 'Pinned Location',
           barangay: geocode.barangay,
           address: geocode.address,
           lat: point.lat,

@@ -18,6 +18,9 @@ export interface RouteResult {
 export interface ReverseGeocodeResult {
   name: string;
   address: string;
+  /** The named place at the point (a shop, school, church, resort…), when the pin lands on one —
+   * never a road, barangay or town name. Pin maps show it as the location's name. */
+  placeName?: string;
   barangay?: string;
   source: 'nominatim' | 'fallback';
 }
@@ -291,10 +294,18 @@ export async function reverseGeocode(
     }
 
     const name = barangay || data.name || 'Nasugbu';
+    // Nominatim's `name` is the feature found at the point; it's only a "place" when that feature
+    // isn't a road or an administrative area (same idea as the Driver app's pin, stricter).
+    const isNamedPlace =
+      typeof data.name === 'string' &&
+      data.name.trim() !== '' &&
+      data.name !== road &&
+      !['highway', 'boundary', 'place'].includes(data.category);
 
     const result: ReverseGeocodeResult = {
       name,
       address: cleanAddress,
+      placeName: isNamedPlace ? data.name.trim() : undefined,
       barangay,
       source: 'nominatim',
     };
