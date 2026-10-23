@@ -62,7 +62,9 @@ function getReverbScheme(): 'http' | 'https' {
   return apiUrl.startsWith('https://') ? 'https' : 'http';
 }
 
-const DEFAULT_REVERB_KEY = 'ysbbrwfe2zovsygafcnn';
+// Public Reverb app key of the production server (REVERB_APP_KEY in its .env). Not a secret:
+// every client needs it to connect; REVERB_APP_SECRET stays on the server.
+const DEFAULT_REVERB_KEY = 'b755b55cbf3a39a2226378300ed029a1';
 function getReverbKey(): string {
   return process.env.EXPO_PUBLIC_REVERB_KEY || DEFAULT_REVERB_KEY;
 }
