@@ -388,6 +388,8 @@ export const passengerApi = {
       party_size: number;
       pickup_lat: number;
       pickup_lng: number;
+      /** Place name of where the passenger boards (a label; the server decides the point). */
+      pickup_name?: string;
       dropoff_name: string;
       dropoff_lat: number;
       dropoff_lng: number;

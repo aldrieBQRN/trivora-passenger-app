@@ -40,18 +40,20 @@ import QrScanScreen from './src/screens/QrScanScreen';
 import QrRideSetupScreen from './src/screens/QrRideSetupScreen';
 import QrRideScreen from './src/screens/QrRideScreen';
 
-import { Home, History, User } from 'lucide-react-native';
+import { Home, History, Bookmark, User } from 'lucide-react-native';
+import SavedPlacesScreen from './src/screens/SavedPlacesScreen';
 import CurvedTabBar, { CurvedTab } from './src/components/CurvedTabBar';
 import { registerWebFonts } from './src/utils/webFonts';
 
 // Web: load the app font in the browser (native builds bundle it via app.json).
 registerWebFonts();
 
-type TabKey = 'home' | 'trips' | 'profile';
+type TabKey = 'home' | 'trips' | 'places' | 'profile';
 
 const TABS: CurvedTab<TabKey>[] = [
   { key: 'home', label: 'Home', icon: Home },
   { key: 'trips', label: 'Rides', icon: History },
+  { key: 'places', label: 'Saved', icon: Bookmark },
   { key: 'profile', label: 'Profile', icon: User },
 ];
 
@@ -202,7 +204,7 @@ function PassengerAppNavigator() {
     }
 
     if (screenState === 'searching') {
-      return <SearchingDriversScreen />;
+      return <SearchingDriversScreen topInset={safeTop} bottomInset={safeBottom} />;
     }
 
     if (screenState === 'driver_en_route') {
@@ -242,6 +244,10 @@ function PassengerAppNavigator() {
           onFocusHandled={() => setFocusReceiptBookingId(null)}
         />
       );
+    }
+
+    if (activeTab === 'places') {
+      return <SavedPlacesScreen topInset={safeTop} />;
     }
 
     if (activeTab === 'profile') {
@@ -284,16 +290,17 @@ function PassengerAppNavigator() {
 
   // Ride History and Profile draw their navy TabHeader up under the status bar (like Home) and
   // pad their own top inset.
-  const isTabHeaderScreen = isTabVisible && (activeTab === 'trips' || activeTab === 'profile');
+  const isTabHeaderScreen = isTabVisible && (activeTab === 'trips' || activeTab === 'places' || activeTab === 'profile');
   // Scan to Ride setup pads its own top inset so the destination picker it opens can draw its navy
   // header under the status bar.
-  // Confirm Booking, Reached Destination / Payment Successful and Rate Driver pad both insets
+  // Confirm Booking, Searching for Drivers / No Drivers Available, Reached Destination / Payment
+  // Successful and Rate Driver pad both insets
   // themselves (as the QR ride's Payment Successful page already does), so their own background
   // runs under the status bar and the phone's navigation bar instead of the root's padding band.
   const ownsSafeArea =
     isAuthenticated &&
     qrStage === 'idle' &&
-    (screenState === 'confirm_fare' || screenState === 'trip_completed' || screenState === 'rate_review');
+    (screenState === 'confirm_fare' || screenState === 'searching' || screenState === 'trip_completed' || screenState === 'rate_review');
   const ownsTopInset = isTabHeaderScreen || (isAuthenticated && qrStage === 'setup') || ownsSafeArea;
 
   return (

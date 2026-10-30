@@ -86,7 +86,7 @@ function PinLocationModalContent({
           },
           paint: fallback
             ? { 'line-color': '#94A3B8', 'line-width': 4, 'line-dasharray': [2, 1.5] }
-            : { 'line-color': '#2563EB', 'line-width': 5 },
+            : { 'line-color': '#182B62', 'line-width': 5 },
         });
       }
     },

@@ -141,9 +141,12 @@ export default function DestinationSearchScreen({
 
   const isSaved = !isPickup && placesTab === 'saved';
 
+  // A place tapped in the list is not selected straight away: it opens on the pin map with its
+  // route first, and only the map's confirm button selects it (or the passenger moves the pin).
+  const [previewLocation, setPreviewLocation] = useState<LocationPoint | null>(null);
+
   const handleSelectSearchResult = (result: PlaceSearchResult) => {
-    onSelect({ name: result.name, address: result.address, lat: result.lat, lng: result.lng, category: 'Search' });
-    onBack();
+    setPreviewLocation({ name: result.name, address: result.address, lat: result.lat, lng: result.lng, category: 'Search' });
   };
 
   // Suggested places from the backend's offline fallback list (ids `fallback/...`, served when
@@ -162,14 +165,13 @@ export default function DestinationSearchScreen({
         lng = exact.lng;
       }
     }
-    onSelect({
+    setPreviewLocation({
       name: item.name,
       address: item.address || 'Nasugbu, Batangas',
       lat,
       lng,
       category: categoryLabel,
     });
-    onBack();
   };
 
   const handleUseCurrentLocation = () => {
@@ -439,15 +441,21 @@ export default function DestinationSearchScreen({
         )}
 
         {/* Interactive Pin Location Map Modal */}
+        {/* Pin on map, or check a place chosen from the list (shown with its route first). Closing
+            a preview returns to this list. */}
         <PinLocationModal
-          visible={showPinModal}
-          onClose={() => setShowPinModal(false)}
+          visible={showPinModal || !!previewLocation}
+          onClose={() => {
+            setShowPinModal(false);
+            setPreviewLocation(null);
+          }}
           currentPickup={currentLocation}
           showRoute={showPinRoute}
-          initialLocation={initialLocation}
+          initialLocation={previewLocation ?? initialLocation}
           mode={mode}
           onConfirmPin={(loc) => {
             setShowPinModal(false);
+            setPreviewLocation(null);
             onSelect(loc);
             onBack();
           }}

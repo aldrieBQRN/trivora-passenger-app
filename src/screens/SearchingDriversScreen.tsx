@@ -87,7 +87,15 @@ const RadarSweep = React.memo(function RadarSweep() {
   );
 });
 
-export default function SearchingDriversScreen() {
+interface SearchingDriversScreenProps {
+  /** Status-bar and navigation-bar heights: this page pads them itself, so its white background
+   * runs under both instead of the app wrapper's padding band. */
+  topInset?: number;
+  bottomInset?: number;
+}
+
+export default function SearchingDriversScreen({ topInset = 0, bottomInset = 0 }: SearchingDriversScreenProps) {
+  const insetStyle = { paddingTop: SPACING.xl + topInset, paddingBottom: SPACING.xl + bottomInset };
   const {
     cancelBooking,
     searchCountdown,
@@ -101,6 +109,7 @@ export default function SearchingDriversScreen() {
     dropoff,
     fareEstimate,
     paymentMethod,
+    pickupMode,
   } = useBooking();
 
   const [isRetrying, setIsRetrying] = useState(false);
@@ -133,7 +142,7 @@ export default function SearchingDriversScreen() {
   const tripCard = (title: string) => (
     <View style={styles.tripCard}>
       <Text style={styles.tripCardTitle}>{title}</Text>
-      <RouteSummaryStrip variant="readonly" pickupLabel={pickup.name} dropoffLabel={dropoff.name} />
+      <RouteSummaryStrip variant="readonly" pickupLabel={pickup.name} pickupIsCurrent={pickupMode === 'current_location'} dropoffLabel={dropoff.name} />
       <View style={styles.fareSummaryRow}>
         <Text style={styles.fareSummaryLabel}>{passengerLabel} · {paymentLabel}</Text>
         <Text style={styles.fareSummaryValue}>₱{fareEstimate.total.toFixed(2)}</Text>
@@ -143,7 +152,7 @@ export default function SearchingDriversScreen() {
 
   if (isNoDriverFound) {
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, insetStyle]}>
         <View style={styles.header}>
           <View style={styles.noDriverIconCircle}>
             <AlertCircle size={36} color={COLORS.amber} strokeWidth={2.2} />
@@ -208,7 +217,7 @@ export default function SearchingDriversScreen() {
   const round = Math.min(Math.max(dispatchRound || 1, 1), ROUND_COUNT);
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, insetStyle]}>
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title}>

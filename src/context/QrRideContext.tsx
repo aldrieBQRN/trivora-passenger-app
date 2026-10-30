@@ -69,7 +69,8 @@ interface QrRideContextType {
    * availability polling) that keep the current scan + quote on screen and swallow failures —
    * the visible "Check Again" / Join paths surface problems themselves. */
   refreshScan: (opts?: { silent?: boolean }) => Promise<void>;
-  requestQuote: (destination: LocationPoint, partySize: number, passengerLocation: { lat: number; lng: number }, signature: string) => Promise<void>;
+  /** `passengerLocation.name`: the place name of where the passenger boards (pick-up label). */
+  requestQuote: (destination: LocationPoint, partySize: number, passengerLocation: { lat: number; lng: number; name?: string | null }, signature: string) => Promise<void>;
   clearQuote: () => void;
   /** Joins only when the held quote belongs to `expectedSignature` (the selection now on screen)
    *  and no refresh is in progress; otherwise it is a no-op. */
@@ -218,7 +219,7 @@ export function QrRideProvider({ children }: { children: React.ReactNode }) {
   const requestQuote = useCallback(async (
     destination: LocationPoint,
     partySize: number,
-    passengerLocation: { lat: number; lng: number },
+    passengerLocation: { lat: number; lng: number; name?: string | null },
     signature: string,
   ) => {
     if (!tokenRef.current) return;
@@ -238,6 +239,7 @@ export function QrRideProvider({ children }: { children: React.ReactNode }) {
         party_size: partySize,
         pickup_lat: passengerLocation.lat,
         pickup_lng: passengerLocation.lng,
+        ...(passengerLocation.name ? { pickup_name: passengerLocation.name } : {}),
         dropoff_name: destination.name,
         dropoff_lat: destination.lat,
         dropoff_lng: destination.lng,

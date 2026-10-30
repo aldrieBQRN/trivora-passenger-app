@@ -70,10 +70,10 @@ export function routeLineFeature(coords: { lat: number; lng: number }[]): GeoJSO
   };
 }
 
-/** Route line paint: blue for a real road route, grey [8, 6]dp dashes (in line widths) for the
+/** Route line paint: brand navy (#182B62, COLORS.primary) for a real road route, grey [8, 6]dp dashes (in line widths) for the
  * straight-line fallback. */
 export function routeLinePaint(isFallback: boolean) {
   return isFallback
     ? { 'line-color': '#94A3B8', 'line-width': 4, 'line-dasharray': [2, 1.5] }
-    : { 'line-color': '#2563EB', 'line-width': 5 };
+    : { 'line-color': '#182B62', 'line-width': 5 };
 }

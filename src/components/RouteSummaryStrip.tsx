@@ -5,6 +5,8 @@ import { COLORS, TYPOGRAPHY, FONT_FAMILY } from '../constants/theme';
 
 interface RouteSummaryStripProps {
   pickupLabel: string;
+  /** The pick-up is the passenger's GPS position: its place name is shown, marked "Current location". */
+  pickupIsCurrent?: boolean;
   dropoffLabel: string;
   variant?: 'editable' | 'readonly';
   /** Bold addresses for dense lists (Ride History) — same as the Driver app's RouteTimeline `compact`. */
@@ -21,6 +23,7 @@ interface RouteSummaryStripProps {
  */
 export default function RouteSummaryStrip({
   pickupLabel,
+  pickupIsCurrent = false,
   dropoffLabel,
   variant = 'readonly',
   compact = false,
@@ -47,7 +50,7 @@ export default function RouteSummaryStrip({
           disabled={!editable}
         >
           <View style={styles.rowTextCol}>
-            <Text style={styles.rowLabel}>Pick-up</Text>
+            <Text style={styles.rowLabel}>{pickupIsCurrent ? 'Pick-up · Current location' : 'Pick-up'}</Text>
             <Text style={[styles.rowValue, compact && styles.rowValueCompact]} numberOfLines={1}>
               {pickupLabel}
             </Text>
@@ -94,7 +97,7 @@ const styles = StyleSheet.create({
     width: 9,
     height: 9,
     borderRadius: 4.5,
-    backgroundColor: '#2563EB',
+    backgroundColor: COLORS.primary,
   },
   connector: {
     width: 1.5,

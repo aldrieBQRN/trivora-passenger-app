@@ -51,6 +51,7 @@ export default function RideConfirmationScreen({ topInset = 0, bottomInset = 0 }
     confirmBooking,
     paymentMethod,
     setPaymentMethod,
+    pickupMode,
   } = useBooking();
   const [isConfirming, setIsConfirming] = useState(false);
   // A stepper (never free text), so the count is always a whole number of at least 1.
@@ -109,7 +110,7 @@ export default function RideConfirmationScreen({ topInset = 0, bottomInset = 0 }
 
       <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
         <View style={styles.routeCard}>
-          <RouteSummaryStrip variant="readonly" pickupLabel={pickup.name} dropoffLabel={dropoff.name} />
+          <RouteSummaryStrip variant="readonly" pickupLabel={pickup.name} pickupIsCurrent={pickupMode === 'current_location'} dropoffLabel={dropoff.name} />
           <Text style={styles.routeMeta}>
             {Number(liveFare.distanceKm).toFixed(1)} km · ~{liveFare.durationMinutes} min
           </Text>

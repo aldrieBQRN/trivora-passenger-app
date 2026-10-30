@@ -29,6 +29,7 @@ export default function DestinationRouteScreen({ topInset = 0, bottomInset = 0 }
     selectPickup,
     swapLocations,
     useCurrentLocationForPickup,
+    pickupMode,
   } = useBooking();
 
   const [pickerMode, setPickerMode] = useState<'pickup' | 'destination' | null>(null);
@@ -103,6 +104,7 @@ export default function DestinationRouteScreen({ topInset = 0, bottomInset = 0 }
         <RouteSummaryStrip
           variant="editable"
           pickupLabel={pickup.name}
+          pickupIsCurrent={pickupMode === 'current_location'}
           dropoffLabel={hasDestination ? dropoff.name : ''}
           onPressPickup={() => setPickerMode('pickup')}
           onPressDropoff={() => setPickerMode('destination')}

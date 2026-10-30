@@ -302,6 +302,10 @@ export default function TrivoraMapNative({
     <View style={[styles.container, style]} onLayout={(e) => setMapWidth(e.nativeEvent.layout.width)}>
       <Map
         style={StyleSheet.absoluteFillObject}
+        // Android: draw like any other view. The default SurfaceView sits in its own window layer
+        // and left a black block where the map was after the screen changed (Searching for
+        // Drivers under Confirm Booking's map strip; Payment Successful and Rate after the ride map).
+        androidView="texture"
         mapStyle={effectiveMapStyle}
         attribution={true}
         attributionPosition={{ bottom: 8, left: 8 }}

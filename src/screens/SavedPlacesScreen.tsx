@@ -17,13 +17,18 @@ import {
   Trash2,
 } from 'lucide-react-native';
 import ScreenHeader from '../components/ScreenHeader';
+import TabHeader from '../components/TabHeader';
 import EmptyState from '../components/EmptyState';
 import AddEditSavedPlaceModal from '../components/AddEditSavedPlaceModal';
 import ConfirmModal from '../components/ConfirmModal';
 import { useToast } from '../components/Toast';
 
 interface SavedPlacesScreenProps {
-  onBack: () => void;
+  /** Opened from another page (the destination picker): a back header. Without it, this is the
+   * Saved tab, with the navy tab header like Ride History. */
+  onBack?: () => void;
+  /** Status-bar height, for the Saved tab's header. */
+  topInset?: number;
 }
 
 const PLACE_ICONS: Record<string, typeof Home> = {
@@ -65,7 +70,7 @@ function SavedPlacesSkeleton() {
   );
 }
 
-export default function SavedPlacesScreen({ onBack }: SavedPlacesScreenProps) {
+export default function SavedPlacesScreen({ onBack, topInset = 0 }: SavedPlacesScreenProps) {
   const { savedPlaces, isLoading, addSavedPlace, editSavedPlace, removeSavedPlace } = useSavedPlaces();
   // First load only: skeleton rows instead of flashing the "no saved places" empty state.
   const showInitialLoading = isLoading && savedPlaces.length === 0;
@@ -157,12 +162,21 @@ export default function SavedPlacesScreen({ onBack }: SavedPlacesScreenProps) {
 
   return (
     <View style={styles.container}>
-      <ScreenHeader
-        title="Saved Places"
-        onBack={onBack}
-        rightIcon={Plus}
-        onRightPress={openAdd}
-      />
+      {onBack ? (
+        <ScreenHeader
+          title="Saved Places"
+          onBack={onBack}
+          rightIcon={Plus}
+          onRightPress={openAdd}
+        />
+      ) : (
+        // The Saved tab: adding is the list's "Add a place" row (or the empty state's button).
+        <TabHeader
+          topInset={topInset}
+          title="Saved Places"
+          subtitle={savedPlaces.length ? `${savedPlaces.length} ${savedPlaces.length === 1 ? 'place' : 'places'} saved` : undefined}
+        />
+      )}
 
       <FlatList
         data={savedPlaces}

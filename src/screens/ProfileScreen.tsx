@@ -13,15 +13,14 @@ import {
   Info,
   LogOut,
   ChevronDown,
-  ChevronRight,
   Pencil,
-  Bookmark,
 } from 'lucide-react-native';
 import EditableAvatar from '../components/EditableAvatar';
 import EditProfileModal from '../components/EditProfileModal';
 import EmailCodeModal from '../components/EmailCodeModal';
-import SavedPlacesScreen from './SavedPlacesScreen';
 import TabHeader from '../components/TabHeader';
+import { TMO_CONTACT, ABOUT_TRIVORA, APP_VERSION } from '../constants/supportInfo';
+import { callPhoneNumber } from '../utils/deviceContact';
 
 interface MenuItem {
   key: string;
@@ -31,7 +30,10 @@ interface MenuItem {
   accentColor?: string;
   /** A real-data preview shown even while collapsed — omitted where there's no single natural preview. */
   subtitle?: string;
-  rows: { label: string; value: string }[];
+  /** `onPress` makes the value a link (e.g. tap to call). */
+  rows: { label: string; value: string; onPress?: () => void }[];
+  /** A short paragraph under the rows. */
+  note?: string;
 }
 
 interface ProfileScreenProps {
@@ -48,7 +50,6 @@ export default function ProfileScreen({ topInset = 0 }: ProfileScreenProps) {
   const [pendingEmail, setPendingEmail] = useState<string | null>(null);
   const [showEmailCode, setShowEmailCode] = useState(false);
   const [emailCodeResendAfter, setEmailCodeResendAfter] = useState(60);
-  const [showSavedPlaces, setShowSavedPlaces] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   // This screen only exists in the tree while the Profile tab is selected (App.tsx's tab switch
@@ -61,15 +62,6 @@ export default function ProfileScreen({ topInset = 0 }: ProfileScreenProps) {
     refreshProfile();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  if (showSavedPlaces) {
-    // A plain page: it needs its own status-bar gap since this tab runs under it.
-    return (
-      <View style={[styles.container, { paddingTop: topInset }]}>
-        <SavedPlacesScreen onBack={() => setShowSavedPlaces(false)} />
-      </View>
-    );
-  }
 
   const memberSinceLabel = user?.memberSince
     ? new Date(user.memberSince).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
@@ -84,9 +76,8 @@ export default function ProfileScreen({ topInset = 0 }: ProfileScreenProps) {
   const emergencyContactValue =
     [emergencyContactName, emergencyContactPhone].filter(Boolean).join(' · ') || 'Not set';
 
-  // Saved Places used to be mirrored here as a static, unsynced readout — real, actionable
-  // saved places now live in the destination picker's own Saved Places tab, so this list
-  // isn't duplicated on Profile. "Settings" (language, notifications, GPS precision) was
+  // Saved Places has its own bottom tab (and the destination picker's Saved tab), so it isn't
+  // repeated on Profile. "Settings" (language, notifications, GPS precision) was
   // static copy with no backing state or toggle anywhere in the app, so it's gone too —
   // everything below has a real destination, real data, or a real save action behind it.
   const supportItems: MenuItem[] = [
@@ -96,8 +87,9 @@ export default function ProfileScreen({ topInset = 0 }: ProfileScreenProps) {
       icon: PhoneCall,
       subtitle: emergencyContactName || emergencyContactPhone || 'Not set',
       rows: [
-        { label: 'Nasugbu PNP Police Station', value: '(043) 931-1234 / 117' },
-        { label: 'Municipal Traffic Office (TMO)', value: '(043) 931-5678' },
+        // 911 is the national emergency hotline (police, fire, ambulance).
+        { label: 'Emergency hotline', value: '911', onPress: () => callPhoneNumber('911') },
+        { label: 'Nasugbu TMO', value: TMO_CONTACT.hotline, onPress: () => callPhoneNumber(TMO_CONTACT.hotline) },
         { label: 'Emergency Contact', value: emergencyContactValue },
       ],
     },
@@ -105,22 +97,30 @@ export default function ProfileScreen({ topInset = 0 }: ProfileScreenProps) {
       key: 'help',
       label: 'Help Center',
       icon: HelpCircle,
+      subtitle: `TMO · ${TMO_CONTACT.hotline}`,
       rows: [
-        { label: 'Hotline', value: '(043) 931-5678' },
-        { label: 'Email', value: 'support@trivora-nasugbu.gov.ph' },
-        { label: 'Office', value: 'Ground Floor, Nasugbu Municipal Hall' },
+        { label: 'Office', value: TMO_CONTACT.office },
+        { label: 'Address', value: TMO_CONTACT.address },
+        { label: 'Hotline', value: TMO_CONTACT.hotline, onPress: () => callPhoneNumber(TMO_CONTACT.hotline) },
+        { label: 'Email', value: TMO_CONTACT.email },
+        { label: 'Office hours', value: TMO_CONTACT.officeHours },
+        { label: 'Closed', value: TMO_CONTACT.closed },
       ],
+      note:
+        'Left something in a tricycle? Call the TMO with the trip\'s date, time and plate number from Ride History. For fare or driver concerns, you can also send a message through the inquiry form on the Trivora website.',
     },
     {
       key: 'about',
       label: 'About Trivora',
       icon: Info,
-      subtitle: 'v1.0.0',
+      subtitle: `Version ${APP_VERSION}`,
       rows: [
-        { label: 'Version', value: 'Trivora Trike Transit System v1.0.0' },
-        { label: 'Authority', value: 'Nasugbu Municipal Ordinance No. 2024-88' },
-        { label: 'Franchise checks', value: 'Standardized fares · Verified MTOP units' },
+        { label: 'App', value: 'Trivora Passenger' },
+        { label: 'Version', value: APP_VERSION },
+        { label: 'Run by', value: 'Traffic Management Office, Municipality of Nasugbu' },
+        { label: 'Fares', value: 'Set by the TMO, calculated from the road distance' },
       ],
+      note: ABOUT_TRIVORA,
     },
   ];
 
@@ -231,9 +231,16 @@ export default function ProfileScreen({ topInset = 0 }: ProfileScreenProps) {
                     style={[styles.detailRow, index === item.rows.length - 1 && styles.detailRowLast]}
                   >
                     <Text style={styles.detailLabel}>{row.label}</Text>
-                    <Text style={styles.detailValue} numberOfLines={1}>{row.value}</Text>
+                    {row.onPress ? (
+                      <TouchableOpacity onPress={row.onPress} accessibilityRole="button" accessibilityLabel={`Call ${row.value}`}>
+                        <Text style={[styles.detailValue, styles.detailLink]} numberOfLines={3}>{row.value}</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <Text style={styles.detailValue} numberOfLines={3}>{row.value}</Text>
+                    )}
                   </View>
                 ))}
+                {item.note ? <Text style={styles.detailNote}>{item.note}</Text> : null}
               </View>
             )}
           </View>
@@ -297,25 +304,6 @@ export default function ProfileScreen({ topInset = 0 }: ProfileScreenProps) {
             </View>
           </View>
         </TabHeader>
-
-        {/* Saved Places — a plain navigation row (not expandable) since it opens its own screen,
-            same treatment as Support items but a single tap goes straight there. */}
-        <View style={styles.menuGroup}>
-          <Text style={styles.sectionLabel}>Booking</Text>
-          <TouchableOpacity
-            style={styles.menuRow}
-            onPress={() => setShowSavedPlaces(true)}
-            activeOpacity={0.6}
-          >
-            <View style={styles.menuIconBadge}>
-              <Bookmark size={18} color={COLORS.textSecondary} strokeWidth={1.8} />
-            </View>
-            <View style={styles.menuTextCol}>
-              <Text style={styles.menuLabel}>Saved Places</Text>
-            </View>
-            <ChevronRight size={16} color={COLORS.textMuted} />
-          </TouchableOpacity>
-        </View>
 
         {renderMenuGroup('Support', supportItems)}
 
@@ -508,6 +496,16 @@ const styles = StyleSheet.create({
     color: COLORS.textPrimary,
     flexShrink: 1,
     textAlign: 'right',
+  },
+  detailLink: {
+    color: COLORS.primary,
+    textDecorationLine: 'underline',
+  },
+  detailNote: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+    lineHeight: 18,
+    paddingTop: SPACING.sm,
   },
   logOutBtn: {
     flexDirection: 'row',

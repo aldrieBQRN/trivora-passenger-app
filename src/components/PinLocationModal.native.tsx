@@ -140,6 +140,9 @@ function PinLocationModalContent({
     >
       <Map
         style={StyleSheet.absoluteFillObject}
+        // Android: draw like any other view (see TrivoraMap.native: the default SurfaceView left
+        // black blocks behind after the map closed).
+        androidView="texture"
         mapStyle={OPENFREEMAP_BRIGHT_STYLE}
         attribution={true}
         attributionPosition={{ bottom: 8, left: 8 }}

@@ -233,6 +233,9 @@ export interface QrScanResult {
     gcash_available: boolean;
   };
   gps: { last_updated_at: string | null; is_fresh: boolean };
+  /** Where the ride starts, as the quote prices it: the tricycle's fresh GPS position (null when
+   * stale; the passenger's own position is then used). */
+  pickup?: { lat: number; lng: number; source: 'tricycle_gps' } | null;
 }
 
 export interface QrQuote {

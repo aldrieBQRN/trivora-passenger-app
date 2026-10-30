@@ -5,6 +5,7 @@ import { COLORS, RADIUS, SPACING, TYPOGRAPHY, FONT_FAMILY } from '../constants/t
 import { useQrRide, QR_RIDE_POLL_MS } from '../context/QrRideContext';
 import { useBooking } from '../context/BookingContext';
 import { useCurrentLocation } from '../hooks/useCurrentLocation';
+import { reverseGeocode } from '../services/routingService';
 import ScreenHeader from '../components/ScreenHeader';
 import Button from '../components/Button';
 import DestinationSearchScreen from './DestinationSearchScreen';
@@ -111,10 +112,39 @@ export default function QrRideSetupScreen({ topInset = 0 }: QrRideSetupScreenPro
     }
     return passengerFixRef.current;
   };
+  const [passengerFix, setPassengerFix] = useState<{ lat: number; lng: number } | null>(null);
   useEffect(() => {
-    getPassengerPosition();
+    getPassengerPosition().then((fix) => {
+      if (fix) setPassengerFix(fix);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Where the ride starts: the tricycle's own position (the driver's GPS, the same point the quote
+  // prices), or the passenger's phone only when the tricycle's GPS is stale, as on the server.
+  const tricyclePoint = scan?.pickup ?? null;
+  const boardingPoint = tricyclePoint
+    ?? (currentLat != null && currentLng != null ? { lat: currentLat, lng: currentLng } : passengerFix);
+
+  // Its place name, shown as the pick-up and sent with the quote so the ride record keeps it (a
+  // label only: the server decides the point). Looked up again only after a move of about 10 m.
+  const [pickupPlace, setPickupPlace] = useState<string | null>(null);
+  const pickupPlaceRef = useRef<string | null>(null);
+  const boardingKey = boardingPoint ? `${boardingPoint.lat.toFixed(4)},${boardingPoint.lng.toFixed(4)}` : null;
+  useEffect(() => {
+    if (!boardingPoint) return;
+    let cancelled = false;
+    reverseGeocode(boardingPoint).then((geo) => {
+      const name = (geo.placeName || geo.address || '').slice(0, 255) || null;
+      if (cancelled || !name) return;
+      pickupPlaceRef.current = name;
+      setPickupPlace(name);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boardingKey]);
 
   // Server quote whenever the destination or party size changes, debounced by ~300ms.
   useEffect(() => {
@@ -132,7 +162,7 @@ export default function QrRideSetupScreen({ topInset = 0 }: QrRideSetupScreenPro
         return;
       }
       setLocationError(null);
-      requestQuote(destination, partySize, here, currentSignature);
+      requestQuote(destination, partySize, { ...here, name: pickupPlaceRef.current }, currentSignature);
     }, 300);
 
     return () => {
@@ -142,11 +172,12 @@ export default function QrRideSetupScreen({ topInset = 0 }: QrRideSetupScreenPro
   }, [canJoin, destination?.lat, destination?.lng, destination?.name, partySize]);
 
   const pickupLabel = useMemo(() => {
+    if (pickupPlace) return pickupPlace;
     if (!quote) return "The tricycle's current location";
     return quote.pickup.source === 'tricycle_gps'
       ? "The tricycle's current location"
       : 'Your current location (tricycle GPS unavailable)';
-  }, [quote]);
+  }, [quote, pickupPlace]);
 
   // ---------------------------------------------------------------- loading / hard errors
   if (isResolving && !scan) {
@@ -191,7 +222,8 @@ export default function QrRideSetupScreen({ topInset = 0 }: QrRideSetupScreenPro
         topInset={topInset}
         onBack={() => setShowPicker(false)}
         onSelect={(dest) => { setDestination(dest); setShowPicker(false); }}
-        currentLocation={currentLat != null && currentLng != null ? { name: 'Current location', lat: currentLat, lng: currentLng } : undefined}
+        // Routes and distances start where the ride does: the tricycle's position.
+        currentLocation={boardingPoint ? { name: pickupPlace ?? 'Current location', lat: boardingPoint.lat, lng: boardingPoint.lng } : undefined}
       />
     );
   }
@@ -259,7 +291,7 @@ export default function QrRideSetupScreen({ topInset = 0 }: QrRideSetupScreenPro
                   <View style={styles.pickupDot} />
                 </View>
                 <View style={styles.routeTextCol}>
-                  <Text style={styles.caption}>Pick-up</Text>
+                  <Text style={styles.caption}>Pick-up · Current location</Text>
                   <Text style={styles.value} numberOfLines={2}>{pickupLabel}</Text>
                 </View>
               </View>
